@@ -1,0 +1,25 @@
+[package]
+name = "emulation-config"
+version = "0.1.0"
+edition = "2024"
+description = "Plain-data emulation configs for wreq, in the JSON format the SDK sends to the TEE"
+publish = false
+
+[lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+
+[dependencies]
+bytes = "1.12.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.21"
+# Every 0.1.x release pins this wreq tag. A project using this crate must use the same wreq (see
+# "Versions and wreq" in the README).
+wreq = { version = "6.0.0-rc.28.opacity.1", git = "https://github.com/OpacityLabs/wreq", tag = "v6.0.0-rc.28.opacity.1", default-features = false }
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+tokio = { version = "1.53.1", features = ["rt", "io-util"] }
+# The http2 wreq uses, so tests can check which values its builder panics on. Keep the pin equal
+# to the one in wreq's Cargo.toml, so both resolve to the same crate.
+wreq_http2 = { version = "=0.5.11", package = "http2", features = ["unstable"] }
