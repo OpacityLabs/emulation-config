@@ -22,10 +22,11 @@ let config = "safari_ios_26_2".parse::<Profile>()?.config();
 // Or any config in the wire format.
 let config: EmulationConfig = serde_json::from_slice(&body)?;
 
-let client = wreq::Client::builder()
-    .emulation(wreq::Emulation::from(&config))
-    .build()?;
+let client = wreq::Client::builder().emulation(config).build()?;
 ```
+
+`EmulationConfig` implements wreq's `EmulationFactory`, so every wreq `emulation(...)` method
+takes it. `wreq::Emulation::from(&config)` gives the wreq value itself.
 
 Two ways to customize:
 
@@ -40,13 +41,19 @@ let config = Profile::Chrome145Macos.config().patched(&serde_json::json!({
 }))?;
 ```
 
+wreq's builder ties `adaptive_window` to the two HTTP/2 window sizes: turning it on resets both
+windows to 65,535, and setting either window turns it off. `Http2Config::set_adaptive_window`,
+`set_initial_window_size` and `set_initial_conn_window_size` apply those rules. Writing the
+fields directly, or patching them, stores the values as given, so set all three together.
+
 `TlsConfig`, `Http1Config` and `Http2Config` also convert on their own into `TlsOptions`,
 `Http1Options` and `Http2Options`. Conversion goes one way, from config to wreq.
 
 `TlsConfig::default()`, `Http1Config::default()` and `Http2Config::default()` equal wreq's own
 defaults. `PseudoOrder::new`, `SettingsOrder::new`, `Priorities::new` and
-`ExperimentalSettings::new` clean up their input the same way wreq's builders do. So a config
-built in code produces the same JSON the wreq builders produce. The SDK's Lua
+`ExperimentalSettings::new` clean up their input the same way wreq's builders do, and the
+`Http2Config` window setters apply the builder's window rules. So a config built in code
+produces the same JSON the wreq builders produce. The SDK's Lua
 parser builds configs this way.
 
 ## Versions and wreq
@@ -131,7 +138,8 @@ The tests check that:
   converts to the recorded wreq value;
 - every recorded case gives the fork's output and wreq value, or is rejected like the fork
   rejected it;
-- defaults and the builder-style constructors match wreq's own;
+- defaults, the builder-style constructors and the window setters match wreq's own (the setters
+  against every sequence of up to three window calls on wreq's builder);
 - past the most distinct header names an `http::HeaderMap` holds, reading returns an error
   rather than panicking;
 - the checked number types (`StreamId`, `InitialStreamId`, `MaxFrameSize`, `ConnWindowSize`,
@@ -143,16 +151,18 @@ The tests check that:
 
 ## Known differences from the fork
 
-No SDK flow produces any of these, and the SDK's Lua parser rejects the invalid
-numbers too. Each one has a test.
+No SDK flow produces any of these, and the current SDK's Lua parser rejects the
+invalid numbers too. An SDK still on the fork sends an invalid `initial_stream_id`,
+`max_frame_size` or `initial_conn_window_size` when a flow sets one. Each row has a test. The
+CHANGELOG's **Breaking** section for 0.1.0 says which rows can make a working request fail.
 
 | Input | Fork | This crate |
 |---|---|---|
 | Stream id with the top bit set (2³¹ or more) | accepted, and sent with that bit set: a dependency turns exclusive, a PRIORITY frame gets its reserved bit set | rejected, since wreq's `StreamId::from` panics on it |
-| `initial_stream_id` that is even (including 0), or 2³¹ or more | accepted; every HTTP/2 connection made with it then panics in the handshake | rejected |
-| `max_frame_size` outside 16,384 to 16,777,215 | accepted; every HTTP/2 connection made with it then panics in the handshake | rejected |
-| `initial_conn_window_size` above 2³¹ − 1 | accepted; every HTTP/2 connection made with it then panics in the handshake | rejected |
-| `max_send_buffer_size` above `u32::MAX` | accepted; every HTTP/2 connection made with it then panics in the handshake | rejected |
+| `initial_stream_id` that is even (including 0), or 2³¹ or more | accepted; HTTP/1.1 requests work, and every HTTP/2 connection made with it panics in the handshake | rejected |
+| `max_frame_size` outside 16,384 to 16,777,215 | accepted; HTTP/1.1 requests work, and every HTTP/2 connection made with it panics in the handshake | rejected |
+| `initial_conn_window_size` above 2³¹ − 1 | accepted; HTTP/1.1 requests work, and every HTTP/2 connection made with it panics in the handshake | rejected |
+| `max_send_buffer_size` above `u32::MAX` | accepted; HTTP/1.1 requests work, and every HTTP/2 connection made with it panics in the handshake | rejected |
 | `h1_max_buf_size` below 8192 | accepted; every HTTP/1 connection made with it then panics as it starts | rejected |
 | Hand-written pseudo order, settings order or priorities (e.g. `{"ids": ["PATH"]}`) | kept as sent, so missing pseudo-headers and settings are left out of the request | kept as sent in the config. Converting to wreq completes and dedupes the list through wreq's builders, the only way to build these types outside wreq |
 | The same JSON key twice in one object | at the top level and in `tls_options`: the last value wins, but `headers` and `orig_headers` merge both lists. Elsewhere: rejected | rejected everywhere |

@@ -8,14 +8,60 @@ Every release states:
 - **wreq**: the wreq tag it pins. A project using this release must use the same wreq.
 - **Wire format**: whether the JSON the SDK sends to the TEE changed. If it did, deploy the TEE
   before any SDK that writes the new format.
+- **API**: whether code that uses the crate has to change.
 - **Profiles**: which built-in profiles were added, changed or removed. A changed profile sends a
   different fingerprint.
+
+A **Breaking** section lists each change that makes a config, a request or code that worked
+before fail or act differently, and who it affects.
+
+## [0.1.1] - 2026-10-02
+
+wreq: `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.1`
+Wire format: unchanged.
+API: additive. Code written for 0.1.0 builds and works the same. Code that calls the new methods
+needs 0.1.1.
+
+### Added
+- `Http2Config::set_adaptive_window`, `set_initial_window_size` and
+  `set_initial_conn_window_size`, which apply wreq's builder rules for the HTTP/2 windows.
+- `wreq::EmulationFactory` for `EmulationConfig`, so wreq's `emulation(...)` methods take a
+  config directly.
+
+### Profiles
+- None changed.
 
 ## [0.1.0] - 2026-09-30
 
 wreq: `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.1`
-Wire format: the same bytes as the serde code in `OpacityLabs/wreq` `v6.0.0-rc.28`. The few
-inputs read differently, none of which the SDK produces, are listed in the README.
+Wire format: writes the same bytes as the serde code in `OpacityLabs/wreq` `v6.0.0-rc.28`. Reads
+the same, except the inputs under **Breaking**. The README's "Known differences from the fork"
+lists every input read differently.
+API: first release.
+
+### Breaking
+
+Compared with the fork's serde, which the TEE used to read the config with:
+- These numbers are now rejected, and with them the whole config:
+  - an `initial_stream_id` that is even (including 0), or 2³¹ or more;
+  - a `max_frame_size` outside 16,384 to 16,777,215;
+  - an `initial_conn_window_size` above 2³¹ − 1;
+  - a `max_send_buffer_size` above `u32::MAX`.
+
+  The fork accepted them. HTTP/1.1 requests then worked, and HTTP/2 connections panicked. This
+  was observed with wreq `v6.0.0-rc.28` and a local HTTP/1.1 server. An SDK that uses the fork
+  sends the first three when a flow sets them, so after the TEE moves to this crate, such a flow
+  fails on HTTP/1.1 sites too. No SDK flow sets them.
+- A stream id with the top bit set (2³¹ or more) is now rejected. The fork sent it with that bit
+  set. SDKs never send one: the Lua parser on the fork panics on it, and the current one rejects
+  it.
+- An `h1_max_buf_size` below 8192 is now rejected. SDKs never send HTTP/1 options.
+- The same JSON key twice at the top level or in `tls_options` is now rejected. The fork used
+  the last value, and merged both lists for `headers` and `orig_headers`. SDKs never send repeated
+  keys.
+- A hand-written pseudo-header order, settings order or priority list that wreq's builders would
+  complete is now completed and deduplicated when it converts to wreq. The fork sent it as it was,
+  so the HTTP/2 frames differ. SDKs always send completed lists.
 
 ### Added
 - `EmulationConfig`, `TlsConfig`, `Http1Config` and `Http2Config`: the emulation config as plain

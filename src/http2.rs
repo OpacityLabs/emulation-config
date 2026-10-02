@@ -259,6 +259,9 @@ pub struct Setting {
 ///
 /// Fields that are not `Option` are required in JSON, as they are for the fork. The `Default`
 /// matches `Http2Options::default()`.
+///
+/// wreq's builder ties `adaptive_window` to the two window sizes. The `set_*` methods for those
+/// fields apply the same rules. Writing the fields directly skips them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Http2Config {
     pub adaptive_window: bool,
@@ -313,6 +316,32 @@ impl Default for Http2Config {
             settings_order: None,
             priorities: None,
         }
+    }
+}
+
+impl Http2Config {
+    /// Sets `adaptive_window` like wreq's builder does: turning it on also resets both window
+    /// sizes to [`SPEC_WINDOW_SIZE`], where wreq's adaptive flow control starts.
+    pub fn set_adaptive_window(&mut self, enabled: bool) {
+        self.adaptive_window = enabled;
+        if enabled {
+            self.initial_window_size = SPEC_WINDOW_SIZE;
+            self.initial_conn_window_size = ConnWindowSize::SPEC_DEFAULT;
+        }
+    }
+
+    /// Sets the stream window like wreq's builder does: a fixed window turns `adaptive_window`
+    /// off.
+    pub fn set_initial_window_size(&mut self, size: u32) {
+        self.adaptive_window = false;
+        self.initial_window_size = size;
+    }
+
+    /// Sets the connection window like wreq's builder does: a fixed window turns
+    /// `adaptive_window` off.
+    pub fn set_initial_conn_window_size(&mut self, size: ConnWindowSize) {
+        self.adaptive_window = false;
+        self.initial_conn_window_size = size;
     }
 }
 

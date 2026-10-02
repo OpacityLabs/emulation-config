@@ -11,7 +11,7 @@ use pretty_assertions::{assert_eq, assert_ne};
 use wreq::{
     header::{HeaderName, OrigHeaderMap},
     http1::Http1Options,
-    http2::Http2Options,
+    http2::{Http2Options, Http2OptionsBuilder},
     tls::TlsOptions,
 };
 
@@ -33,6 +33,77 @@ fn defaults_match_wreq() {
         format!("{:?}", wreq::Emulation::from(&EmulationConfig::default())),
         format!("{:?}", wreq::Emulation::default()),
     );
+}
+
+/// One window call, made both on an `Http2Config` and on wreq's builder.
+#[derive(Debug, Clone, Copy)]
+enum WindowCall {
+    AdaptiveWindow(bool),
+    InitialWindowSize(u32),
+    InitialConnWindowSize(u32),
+}
+
+impl WindowCall {
+    // The sizes differ from both the defaults and the spec window, so every reset shows.
+    const ALL: [Self; 4] = [
+        Self::AdaptiveWindow(true),
+        Self::AdaptiveWindow(false),
+        Self::InitialWindowSize(1_000_000),
+        Self::InitialConnWindowSize(3_000_000),
+    ];
+
+    fn apply(self, config: &mut Http2Config) {
+        match self {
+            Self::AdaptiveWindow(enabled) => config.set_adaptive_window(enabled),
+            Self::InitialWindowSize(size) => config.set_initial_window_size(size),
+            Self::InitialConnWindowSize(size) => {
+                config.set_initial_conn_window_size(http2::ConnWindowSize::new(size).unwrap());
+            }
+        }
+    }
+
+    fn build(self, builder: Http2OptionsBuilder) -> Http2OptionsBuilder {
+        match self {
+            Self::AdaptiveWindow(enabled) => builder.adaptive_window(enabled),
+            Self::InitialWindowSize(size) => builder.initial_window_size(size),
+            Self::InitialConnWindowSize(size) => builder.initial_connection_window_size(size),
+        }
+    }
+}
+
+/// Every sequence of up to three window calls, so each call runs before and after each other.
+fn window_call_sequences() -> Vec<Vec<WindowCall>> {
+    let mut sequences = vec![Vec::new()];
+    let mut previous_length = vec![Vec::new()];
+    for _ in 0..3 {
+        previous_length = previous_length
+            .iter()
+            .flat_map(|sequence: &Vec<WindowCall>| {
+                WindowCall::ALL.into_iter().map(|call| {
+                    let mut longer = sequence.clone();
+                    longer.push(call);
+                    longer
+                })
+            })
+            .collect();
+        sequences.extend(previous_length.iter().cloned());
+    }
+    sequences
+}
+
+#[test]
+fn window_setters_match_the_wreq_builder() {
+    let sequences = window_call_sequences();
+    assert_eq!(sequences.len(), 1 + 4 + 16 + 64);
+    for calls in sequences {
+        let mut ours = Http2Config::default();
+        let mut built = Http2Options::builder();
+        for call in &calls {
+            call.apply(&mut ours);
+            built = call.build(built);
+        }
+        assert_eq!(Http2Options::from(&ours), built.build(), "calls: {calls:?}");
+    }
 }
 
 #[test]

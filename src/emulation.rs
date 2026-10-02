@@ -108,6 +108,14 @@ impl From<&EmulationConfig> for wreq::Emulation {
     }
 }
 
+/// Lets wreq's `emulation(...)` methods (on `ClientBuilder`, `RequestBuilder` and the WebSocket
+/// builder) take a config directly.
+impl wreq::EmulationFactory for EmulationConfig {
+    fn emulation(self) -> wreq::Emulation {
+        wreq::Emulation::from(&self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};

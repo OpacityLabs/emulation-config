@@ -6,17 +6,19 @@
 //! SDK sends to the TEE today.
 //!
 //! The types here are ours, so the wire format no longer depends on wreq's internals. Start from a
-//! built-in [`Profile`] or from any JSON config, change what you need, and turn it into wreq types
-//! with a plain `From` conversion:
+//! built-in [`Profile`] or from any JSON config, change what you need, and hand it to wreq:
 //!
 //! ```
 //! use emulation_config::EmulationConfig;
 //!
 //! let config: EmulationConfig = serde_json::from_str(r#"{"transport":{}}"#)?;
-//! let emulation = wreq::Emulation::from(&config);
-//! # let _ = emulation;
+//! let client = wreq::Client::builder().emulation(config).build();
+//! # let _ = client;
 //! # Ok::<(), serde_json::Error>(())
 //! ```
+//!
+//! `wreq::Emulation::from(&config)` gives the wreq value itself, when you need it without a
+//! builder.
 
 mod checked_number;
 mod emulation;
