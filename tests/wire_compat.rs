@@ -24,7 +24,7 @@ struct Case {
 }
 
 /// Inputs we knowingly treat differently from the fork. Each one is explained in the README.
-const WE_REJECT: [&str; 11] = [
+const WE_REJECT: [&str; 13] = [
     "stream_id_top_bit",
     "initial_stream_id_zero",
     "initial_stream_id_even",
@@ -33,6 +33,8 @@ const WE_REJECT: [&str; 11] = [
     "max_frame_size_too_large",
     "conn_window_size_too_large",
     "max_send_buffer_size_too_large",
+    "keep_alive_interval_too_large",
+    "keep_alive_timeout_too_large",
     "http1_small_buffer",
     "repeated_key",
     "repeated_headers_key",

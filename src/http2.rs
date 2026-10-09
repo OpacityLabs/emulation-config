@@ -137,6 +137,29 @@ impl MaxSendBufferSize {
     }
 }
 
+checked_number! {
+    /// A keep-alive interval or timeout.
+    ///
+    /// Values up to one day are accepted. wreq adds these durations to an `Instant` with `+` when
+    /// it schedules a keep-alive ping, and that panics when the sum does not fit, which happens for
+    /// values near `Duration::MAX`. No client pings less often than daily, so the limit stays far
+    /// below the overflow instead of tracking its exact position.
+    pub struct KeepAliveDuration(Duration);
+
+    /// A `keep_alive_interval` or `keep_alive_timeout` above one day.
+    pub struct InvalidKeepAliveDuration:
+        "keep-alive duration {0:?} is above the maximum of {max:?}", max = KeepAliveDuration::MAX.get()
+}
+
+impl KeepAliveDuration {
+    /// The largest allowed value, one day.
+    pub const MAX: Self = Self(Duration::from_hours(24));
+
+    const fn is_valid(duration: Duration) -> bool {
+        Self::MAX.0.checked_sub(duration).is_some()
+    }
+}
+
 /// Order of pseudo-headers in outgoing HEADERS frames.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PseudoOrder {
@@ -270,8 +293,8 @@ pub struct Http2Config {
     pub initial_window_size: u32,
     pub initial_max_send_streams: usize,
     pub max_frame_size: Option<MaxFrameSize>,
-    pub keep_alive_interval: Option<Duration>,
-    pub keep_alive_timeout: Duration,
+    pub keep_alive_interval: Option<KeepAliveDuration>,
+    pub keep_alive_timeout: KeepAliveDuration,
     pub keep_alive_while_idle: bool,
     pub max_concurrent_reset_streams: Option<usize>,
     pub max_send_buffer_size: MaxSendBufferSize,
@@ -299,7 +322,7 @@ impl Default for Http2Config {
             initial_max_send_streams: 100,
             max_frame_size: None,
             keep_alive_interval: None,
-            keep_alive_timeout: Duration::from_secs(20),
+            keep_alive_timeout: KeepAliveDuration(Duration::from_secs(20)),
             keep_alive_while_idle: false,
             max_concurrent_reset_streams: None,
             max_send_buffer_size: MaxSendBufferSize(1024 * 1024),
@@ -356,8 +379,8 @@ impl From<&Http2Config> for wreq_h2::Http2Options {
         options.initial_window_size = config.initial_window_size;
         options.initial_max_send_streams = config.initial_max_send_streams;
         options.max_frame_size = config.max_frame_size.map(MaxFrameSize::get);
-        options.keep_alive_interval = config.keep_alive_interval;
-        options.keep_alive_timeout = config.keep_alive_timeout;
+        options.keep_alive_interval = config.keep_alive_interval.map(KeepAliveDuration::get);
+        options.keep_alive_timeout = config.keep_alive_timeout.get();
         options.keep_alive_while_idle = config.keep_alive_while_idle;
         options.max_concurrent_reset_streams = config.max_concurrent_reset_streams;
         options.max_send_buffer_size = config.max_send_buffer_size.get();
@@ -466,5 +489,42 @@ impl From<SettingId> for wreq_h2::SettingId {
             SettingId::EnableConnectProtocol => Self::EnableConnectProtocol,
             SettingId::NoRfc7540Priorities => Self::NoRfc7540Priorities,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::KeepAliveDuration;
+
+    #[test]
+    fn keep_alive_duration_accepts_up_to_one_day() {
+        let day = Duration::from_hours(24);
+        assert!(KeepAliveDuration::new(Duration::ZERO).is_ok());
+        assert_eq!(KeepAliveDuration::new(day).unwrap(), KeepAliveDuration::MAX);
+        let error = KeepAliveDuration::new(day + Duration::from_nanos(1)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "keep-alive duration 86400.000000001s is above the maximum of 86400s"
+        );
+        assert!(KeepAliveDuration::new(Duration::MAX).is_err());
+    }
+
+    /// On the wire it is serde's plain `Duration` object, as the fork wrote it.
+    #[test]
+    fn keep_alive_duration_keeps_the_wire_format() {
+        let json = r#"{"secs":86400,"nanos":0}"#;
+        let value: KeepAliveDuration = serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&value).unwrap(), json);
+
+        let error =
+            serde_json::from_str::<KeepAliveDuration>(r#"{"secs":86401,"nanos":0}"#).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("keep-alive duration 86401s is above the maximum of 86400s"),
+            "{error}"
+        );
     }
 }

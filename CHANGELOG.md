@@ -15,6 +15,27 @@ Every release states:
 A **Breaking** section lists each change that makes a config, a request or code that worked
 before fail or act differently, and who it affects.
 
+## [0.1.2] - 2026-10-09
+
+wreq: `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.1`
+Wire format: unchanged.
+API: `Http2Config::keep_alive_interval` and `keep_alive_timeout` hold a `KeepAliveDuration`
+instead of a `Duration`. Code that writes them wraps the value with `KeepAliveDuration::new`, and
+code that reads them calls `get()`.
+
+### Breaking
+- A `keep_alive_interval` or `keep_alive_timeout` above one day is now rejected, and with it
+  the whole config. The fork accepted any value. wreq adds both to an `Instant` when it schedules
+  a keep-alive ping, which panics for values near `Duration::MAX`, so a TEE reading such a
+  config would panic on the first HTTP/2 connection. No SDK flow and no profile sets either
+  field.
+
+### Added
+- `http2::KeepAliveDuration`, with `KeepAliveDuration::MAX` (one day).
+
+### Profiles
+- None changed.
+
 ## [0.1.1] - 2026-10-02
 
 wreq: `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.1`

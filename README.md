@@ -122,7 +122,7 @@ The reference is the fork's serde (`OpacityLabs/wreq` tag `v6.0.0-rc.28`), recor
 `tests/golden/`. No expected output is written by hand, and the tests never call the fork's
 serde, so they keep working once that code is removed from wreq.
 
-- `tests/golden/wire_cases.json`: 51 inputs (edge cases, rejected inputs, every enum value) with
+- `tests/golden/wire_cases.json`: 55 inputs (edge cases, rejected inputs, every enum value) with
   what the fork wrote back or whether it rejected them, plus `Debug` of the wreq value each one
   must convert to.
 - `tests/golden/profiles_wreq_debug.json`: `Debug` of the wreq value each profile must convert
@@ -145,7 +145,9 @@ The tests check that:
 - the checked number types (`StreamId`, `InitialStreamId`, `MaxFrameSize`, `ConnWindowSize`,
   `MaxSendBufferSize`, `MaxBufSize`) reject exactly the values wreq and http2 panic on. The test
   runs values on each side of every limit through their real code, so an upgrade that changes a
-  limit makes it fail;
+  limit makes it fail. `KeepAliveDuration` has a round limit of one day instead, and the test
+  checks that `Instant + Duration`, which wreq's keep-alive code uses, still panics near
+  `Duration::MAX` and not at that limit;
 - `patched()` matches making the same change in code, and the merge logic passes every example
   in RFC 7386, Appendix A.
 
@@ -163,6 +165,7 @@ CHANGELOG's **Breaking** section for 0.1.0 says which rows can make a working re
 | `max_frame_size` outside 16,384 to 16,777,215 | accepted; HTTP/1.1 requests work, and every HTTP/2 connection made with it panics in the handshake | rejected |
 | `initial_conn_window_size` above 2³¹ − 1 | accepted; HTTP/1.1 requests work, and every HTTP/2 connection made with it panics in the handshake | rejected |
 | `max_send_buffer_size` above `u32::MAX` | accepted; HTTP/1.1 requests work, and every HTTP/2 connection made with it panics in the handshake | rejected |
+| `keep_alive_interval` or `keep_alive_timeout` above one day | accepted; wreq adds them to an `Instant` when it schedules a ping, which panics for values near `Duration::MAX` | rejected |
 | `h1_max_buf_size` below 8192 | accepted; every HTTP/1 connection made with it then panics as it starts | rejected |
 | Hand-written pseudo order, settings order or priorities (e.g. `{"ids": ["PATH"]}`) | kept as sent, so missing pseudo-headers and settings are left out of the request | kept as sent in the config. Converting to wreq completes and dedupes the list through wreq's builders, the only way to build these types outside wreq |
 | The same JSON key twice in one object | at the top level and in `tls_options`: the last value wins, but `headers` and `orig_headers` merge both lists. Elsewhere: rejected | rejected everywhere |

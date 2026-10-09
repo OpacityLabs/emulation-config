@@ -7,6 +7,9 @@
 //!   there, not in the builder.
 //! - `MaxBufSize`: the `Http1Options` builder's `max_buf_size`. It checks the same minimum as an
 //!   HTTP/1 connection does when it starts.
+//! - `KeepAliveDuration`: `Instant + Duration`, which wreq's keep-alive code uses to schedule
+//!   pings. Its limit is a round day, not the exact overflow point, so this only checks that the
+//!   overflow is real and that the limit sits below it.
 //!
 //! If a wreq or http2 upgrade changes what panics, this test says so. It is the only test in its
 //! binary because it swaps the global panic hook to keep the expected panics out of the output.
@@ -14,11 +17,15 @@
 use std::{
     fmt::Debug,
     panic::{self, RefUnwindSafe, UnwindSafe},
+    time::{Duration, Instant},
 };
 
 use emulation_config::{
     http1::MaxBufSize,
-    http2::{ConnWindowSize, InitialStreamId, MaxFrameSize, MaxSendBufferSize, StreamId},
+    http2::{
+        ConnWindowSize, InitialStreamId, KeepAliveDuration, MaxFrameSize, MaxSendBufferSize,
+        StreamId,
+    },
 };
 
 /// Values on each side of every boundary: zero, odd and even, and the reserved top bit.
@@ -87,6 +94,15 @@ fn compare<T, F>(
             ));
         }
     }
+}
+
+/// Whether adding this duration to the current instant panics, as wreq's `proto/h2/ping.rs`
+/// does with the keep-alive interval and timeout.
+fn instant_plus(duration: Duration) -> bool {
+    panic::catch_unwind(move || {
+        let _ = Instant::now() + duration;
+    })
+    .is_err()
 }
 
 /// Starts an http2 client connection with this connection window.
@@ -161,6 +177,12 @@ fn checked_numbers_reject_exactly_what_wreq_panics_on() {
         },
         |size| MaxBufSize::new(size).is_err(),
     );
+    if !instant_plus(Duration::MAX) {
+        mismatches.push("KeepAliveDuration: Instant + Duration::MAX does not panic".to_owned());
+    }
+    if instant_plus(KeepAliveDuration::MAX.get()) {
+        mismatches.push("KeepAliveDuration: Instant + KeepAliveDuration::MAX panics".to_owned());
+    }
     panic::set_hook(default_hook);
     assert!(mismatches.is_empty(), "{mismatches:#?}");
 }
