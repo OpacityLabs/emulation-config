@@ -207,7 +207,7 @@ checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 
 [[package]]
 name = "emulation-config"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "http2",
@@ -1121,8 +1121,8 @@ dependencies = [
 
 [[package]]
 name = "wreq"
-version = "6.0.0-rc.28.opacity.1"
-source = "git+https://github.com/OpacityLabs/wreq?tag=v6.0.0-rc.28.opacity.1#f1fc58788ee6cbdd6b0b360e316929bad3ff1395"
+version = "6.0.0-rc.28.opacity.2"
+source = "git+https://github.com/OpacityLabs/wreq?tag=v6.0.0-rc.28.opacity.2#32e54a94cfc55d8cfa0a8ede5fbd8e0cb7199d83"
 dependencies = [
  "ahash",
  "boring2",

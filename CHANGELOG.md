@@ -15,6 +15,21 @@ Every release states:
 A **Breaking** section lists each change that makes a config, a request or code that worked
 before fail or act differently, and who it affects.
 
+## [0.2.0] - 2026-10-19
+
+wreq: `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.2`
+Wire format: unchanged.
+API: unchanged. Code that uses this crate builds and works the same.
+
+### Breaking
+- The pinned wreq is now `v6.0.0-rc.28.opacity.2`. A project that moves to this release must move
+  its own wreq to the same tag, or it builds two copies of wreq and does not compile. In that
+  wreq, `ClientBuilder::socket(i32)` is replaced by `ClientBuilder::tcp_stream(TcpStream)`, so
+  code that calls `socket` must change.
+
+### Profiles
+- None changed.
+
 ## [0.1.2] - 2026-10-09
 
 wreq: `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.1`

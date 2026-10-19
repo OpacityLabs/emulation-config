@@ -64,6 +64,7 @@ This crate has its own version. It pins wreq in `Cargo.toml` (and the exact comm
 | emulation-config | wreq |
 |---|---|
 | 0.1.x | `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.1`: no serde, http2 0.5.11 from crates.io |
+| 0.2.x | `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.2`: `ClientBuilder::tcp_stream` in place of `socket` |
 
 [CHANGELOG.md](CHANGELOG.md) records, for every release, the wreq it pins, whether the wire
 format changed, and which profiles changed.
