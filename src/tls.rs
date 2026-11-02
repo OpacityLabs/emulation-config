@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 
 use serde::{Deserialize, Deserializer, Serialize};
-use wreq::tls::{self as wreq_tls, KeyShare, compress::CertificateCompressor};
+use wreq::tls::{self as wreq_tls, compress::CertificateCompressor};
 
 use crate::{cert_compression, string_enum::string_enum};
 
@@ -41,6 +41,22 @@ string_enum! {
         Zlib => "zlib",
         Brotli => "brotli",
         Zstd => "zstd",
+    }
+}
+
+string_enum! {
+    /// A group that gets a key share, named as `curves_list` names it (`BoringSSL`'s
+    /// `kNamedGroups` in `ssl/ssl_key_share.cc`, plus the two finite-field groups btls patches in).
+    pub enum KeyShare("key share group") {
+        P256 => "P-256",
+        P384 => "P-384",
+        P521 => "P-521",
+        X25519 => "X25519",
+        X25519Kyber768Draft00 => "X25519Kyber768Draft00",
+        X25519Mlkem768 => "X25519MLKEM768",
+        Mlkem1024 => "MLKEM1024",
+        Ffdhe2048 => "ffdhe2048",
+        Ffdhe3072 => "ffdhe3072",
     }
 }
 
@@ -121,6 +137,12 @@ pub struct TlsConfig {
     /// `key_shares_limit` entries of `curves_list`. Without a `curves_list` nothing is derived
     /// and `BoringSSL` sends its default shares.
     pub key_shares_limit: Option<u8>,
+    /// The groups that get a key share, as wreq 0.16 names them. Wins over `key_shares_limit`.
+    ///
+    /// The fork had no such field, so it is left out of the JSON when unset: a payload without it
+    /// is byte for byte what the fork wrote. A reader on 0.3.x or older ignores the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_shares: Option<Vec<KeyShare>>,
     #[serde(default = "default_true", deserialize_with = "null_as_true")]
     pub psk_dhe_ke: bool,
     #[serde(default = "default_true", deserialize_with = "null_as_true")]
@@ -159,6 +181,7 @@ impl Default for TlsConfig {
             record_size_limit: None,
             psk_skip_session_ticket: false,
             key_shares_limit: None,
+            key_shares: None,
             psk_dhe_ke: true,
             renegotiation: true,
             delegated_credentials: None,
@@ -208,30 +231,30 @@ fn wreq_str(value: Option<&String>) -> Option<Cow<'static, str>> {
 /// `[X25519_MLKEM768, X25519, P256]`, which is what this gives.
 ///
 /// A name `BoringSSL` does not know ends the list, since `curves_list` itself is rejected with it.
-fn key_shares(limit: Option<u8>, curves_list: Option<&str>) -> Option<Cow<'static, [KeyShare]>> {
+fn key_shares(
+    limit: Option<u8>,
+    curves_list: Option<&str>,
+) -> Option<Cow<'static, [wreq_tls::KeyShare]>> {
     let limit = usize::from(limit?);
     let shares = curves_list?
         .split(':')
         .map_while(key_share)
         .take(limit)
+        .map(wreq_tls::KeyShare::from)
         .collect();
     Some(Cow::Owned(shares))
 }
 
-/// A group as `BoringSSL`'s `set_curves_list` names it: `kNamedGroups` in `ssl/ssl_key_share.cc`,
-/// plus the two finite-field groups btls patches in.
+/// A group as `BoringSSL`'s `set_curves_list` names it, aliases included.
 fn key_share(group: &str) -> Option<KeyShare> {
     Some(match group {
-        "P-256" | "prime256v1" => KeyShare::P256,
-        "P-384" | "secp384r1" => KeyShare::P384,
-        "P-521" | "secp521r1" => KeyShare::P521,
-        "X25519" | "x25519" => KeyShare::X25519,
-        "X25519Kyber768Draft00" => KeyShare::X25519_KYBER768_DRAFT00,
-        "X25519MLKEM768" => KeyShare::X25519_MLKEM768,
-        "MLKEM1024" => KeyShare::MLKEM1024,
-        "ffdhe2048" | "dhe2048" => KeyShare::FFDHE2048,
-        "ffdhe3072" | "dhe3072" => KeyShare::FFDHE3072,
-        _ => return None,
+        "prime256v1" => KeyShare::P256,
+        "secp384r1" => KeyShare::P384,
+        "secp521r1" => KeyShare::P521,
+        "x25519" => KeyShare::X25519,
+        "dhe2048" => KeyShare::Ffdhe2048,
+        "dhe3072" => KeyShare::Ffdhe3072,
+        _ => return group.parse().ok(),
     })
 }
 
@@ -265,7 +288,8 @@ impl From<&TlsConfig> for wreq_tls::TlsOptions {
         options.enable_signed_cert_timestamps = config.enable_signed_cert_timestamps;
         options.record_size_limit = config.record_size_limit;
         options.psk_skip_session_ticket = config.psk_skip_session_ticket;
-        options.key_shares = key_shares(config.key_shares_limit, config.curves_list.as_deref());
+        options.key_shares = wreq_list(config.key_shares.as_deref())
+            .or_else(|| key_shares(config.key_shares_limit, config.curves_list.as_deref()));
         options.psk_dhe_ke = config.psk_dhe_ke;
         options.renegotiation = config.renegotiation;
         options.delegated_credentials = wreq_str(config.delegated_credentials.as_ref());
@@ -311,6 +335,22 @@ impl From<TlsVersion> for wreq_tls::TlsVersion {
             TlsVersion::Tls11 => Self::TLS_1_1,
             TlsVersion::Tls12 => Self::TLS_1_2,
             TlsVersion::Tls13 => Self::TLS_1_3,
+        }
+    }
+}
+
+impl From<KeyShare> for wreq_tls::KeyShare {
+    fn from(share: KeyShare) -> Self {
+        match share {
+            KeyShare::P256 => Self::P256,
+            KeyShare::P384 => Self::P384,
+            KeyShare::P521 => Self::P521,
+            KeyShare::X25519 => Self::X25519,
+            KeyShare::X25519Kyber768Draft00 => Self::X25519_KYBER768_DRAFT00,
+            KeyShare::X25519Mlkem768 => Self::X25519_MLKEM768,
+            KeyShare::Mlkem1024 => Self::MLKEM1024,
+            KeyShare::Ffdhe2048 => Self::FFDHE2048,
+            KeyShare::Ffdhe3072 => Self::FFDHE3072,
         }
     }
 }

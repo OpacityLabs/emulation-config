@@ -3,7 +3,7 @@
 //! An [`EmulationConfig`] describes everything a `wreq::Emulation` holds: default headers,
 //! header order, and the TLS, HTTP/1 and HTTP/2 options. It reads and writes the same JSON as
 //! the serde code inside the `OpacityLabs/wreq` fork (`v6.0.0-rc.28`), which is the format the
-//! SDK sends to the TEE today.
+//! SDK uses today.
 //!
 //! The types here are ours, so the wire format no longer depends on wreq's internals. Start from a
 //! built-in [`Profile`] or from any JSON config, change what you need, and hand it to wreq:

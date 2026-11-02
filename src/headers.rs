@@ -174,6 +174,29 @@ impl OrigHeaders {
     pub fn iter(&self) -> impl Iterator<Item = &OrigHeaderName> {
         self.0.iter().map(|(_, name)| name)
     }
+
+    /// Whether the order lists `name`, in any casing.
+    #[must_use]
+    pub fn contains(&self, name: &HeaderName) -> bool {
+        self.0.contains_key(name)
+    }
+
+    /// Puts `name` right after the last of `anchors` that the order lists, or first if it lists
+    /// none of them.
+    pub(crate) fn insert_after_last_of(&mut self, anchors: &[HeaderName], name: HeaderName) {
+        let mut names = self.iter().cloned().collect::<Vec<_>>();
+        let position = anchors
+            .iter()
+            .rev()
+            .find_map(|anchor| {
+                names
+                    .iter()
+                    .rposition(|listed| listed.key().as_ref() == Some(anchor))
+            })
+            .map_or(0, |index| index + 1);
+        names.insert(position, OrigHeaderName::Standard(name));
+        *self = names.into_iter().collect();
+    }
 }
 
 // `HeaderMap`'s own equality ignores key order, which is the whole point of this type.

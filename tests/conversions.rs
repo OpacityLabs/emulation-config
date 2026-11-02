@@ -6,6 +6,7 @@
 use emulation_config::{
     EmulationConfig, Http1Config, Http2Config, OrigHeaders, TlsConfig,
     http2::{self, PseudoId, SettingId},
+    tls::KeyShare,
 };
 use pretty_assertions::{assert_eq, assert_ne};
 use wreq::{
@@ -254,4 +255,42 @@ fn header_order_equality_depends_on_order() {
     let first: OrigHeaders = ["Accept", "Cookie"].into_iter().collect();
     let second: OrigHeaders = ["Cookie", "Accept"].into_iter().collect();
     assert_ne!(first, second);
+}
+
+#[test]
+fn every_key_share_group_converts_like_the_wreq_builder() {
+    let config = TlsConfig {
+        key_shares: Some(KeyShare::ALL.to_vec()),
+        ..TlsConfig::default()
+    };
+    let built = TlsOptions::builder()
+        .key_shares(vec![
+            wreq::tls::KeyShare::P256,
+            wreq::tls::KeyShare::P384,
+            wreq::tls::KeyShare::P521,
+            wreq::tls::KeyShare::X25519,
+            wreq::tls::KeyShare::X25519_KYBER768_DRAFT00,
+            wreq::tls::KeyShare::X25519_MLKEM768,
+            wreq::tls::KeyShare::MLKEM1024,
+            wreq::tls::KeyShare::FFDHE2048,
+            wreq::tls::KeyShare::FFDHE3072,
+        ])
+        .build();
+    assert_eq!(debug(TlsOptions::from(&config)), debug(built));
+}
+
+#[test]
+fn key_shares_wins_over_key_shares_limit() {
+    let curves = "X25519MLKEM768:X25519:P-256";
+    let config = TlsConfig {
+        curves_list: Some(curves.to_owned()),
+        key_shares_limit: Some(2),
+        key_shares: Some(vec![KeyShare::P256]),
+        ..TlsConfig::default()
+    };
+    let built = TlsOptions::builder()
+        .curves_list(curves)
+        .key_shares(vec![wreq::tls::KeyShare::P256])
+        .build();
+    assert_eq!(debug(TlsOptions::from(&config)), debug(built));
 }

@@ -195,7 +195,7 @@ checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 
 [[package]]
 name = "emulation-config"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "brotli",
  "bytes",
@@ -589,9 +589,9 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
 name = "lru"
-version = "0.18.5"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef9ac18847474e638e3702b76c65d4eb93428471a74778ef0f1be711717f89b5"
+checksum = "4a9f71e3591c7ec44d3e563e87bf14ddc2bada8519dca046e5b0e560cd004e2d"
 dependencies = [
  "hashbrown",
 ]
@@ -1053,8 +1053,8 @@ dependencies = [
 
 [[package]]
 name = "wreq"
-version = "0.16.1-opacity.1"
-source = "git+https://github.com/OpacityLabs/wreq?tag=v0.16.1-opacity.1#b328a632b014f2d25ea94328ffdf8767e5b059f4"
+version = "0.16.3-opacity.1"
+source = "git+https://github.com/OpacityLabs/wreq?tag=v0.16.3-opacity.1#b7a36ea16376f84f7d99d459345ab06ea35e10f9"
 dependencies = [
  "btls",
  "btls-sys",
