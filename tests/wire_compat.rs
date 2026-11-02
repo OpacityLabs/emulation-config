@@ -1,15 +1,17 @@
 //! `EmulationConfig` must read and write exactly what the fork's serde does, and convert into
-//! the same wreq values.
+//! wreq values that only change on purpose.
 //!
-//! The expected results live in `tests/golden/`, recorded from the fork's serde
-//! (`OpacityLabs/wreq` tag `v6.0.0-rc.28`). No expected output here is written by hand. These
-//! tests never call the fork's serde, so they keep working once that code is removed from wreq.
+//! The wire format comes from `tests/golden/wire_cases.json`, recorded from the fork's serde
+//! (`OpacityLabs/wreq` tag `v6.0.0-rc.28`) and never edited. The wreq values are snapshots of this
+//! crate's own conversion in `tests/golden/wreq_debug.json`; `UPDATE_WREQ_DEBUG=1 cargo test`
+//! rewrites them, and the diff is reviewed with the change that caused it. Nothing here is
+//! written by hand.
 
 use std::collections::BTreeMap;
 
 use emulation_config::{EmulationConfig, Profile};
 use pretty_assertions::assert_eq;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use wreq::header::{HeaderMap, HeaderName, HeaderValue};
 
 /// One recorded input and what the fork did with it.
@@ -19,9 +21,16 @@ struct Case {
     input: String,
     /// What the fork wrote back after reading `input`, or `None` if it rejected it.
     fork_output: Option<String>,
-    /// `Debug` of the wreq value a correct conversion produces.
-    wreq_debug: Option<String>,
 }
+
+/// `Debug` of the wreq value each profile and each accepted case converts to.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct WreqDebug {
+    profiles: BTreeMap<String, String>,
+    cases: BTreeMap<String, String>,
+}
+
+const WREQ_DEBUG_FILE: &str = "tests/golden/wreq_debug.json";
 
 /// Inputs we knowingly treat differently from the fork. Each one is explained in the README.
 const WE_REJECT: [&str; 13] = [
@@ -49,8 +58,8 @@ fn cases() -> Vec<Case> {
     serde_json::from_str(include_str!("golden/wire_cases.json")).unwrap()
 }
 
-fn profile_debug() -> BTreeMap<String, String> {
-    serde_json::from_str(include_str!("golden/profiles_wreq_debug.json")).unwrap()
+fn golden_path(file: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file)
 }
 
 /// Reads `json` into our config and writes it back with our serde.
@@ -67,8 +76,6 @@ fn our_conversion(json: &str) -> serde_json::Result<String> {
 
 #[test]
 fn profiles_match_byte_for_byte() {
-    let debug = profile_debug();
-    assert_eq!(debug.len(), Profile::ALL.len());
     for &profile in Profile::ALL {
         let name = profile.as_str();
         let sent = profile.json().trim_end();
@@ -78,12 +85,40 @@ fn profiles_match_byte_for_byte() {
             sent,
             "config(), {name}"
         );
-        assert_eq!(
-            our_conversion(sent).unwrap(),
-            debug[name],
-            "conversion to wreq, {name}"
-        );
     }
+}
+
+/// Every profile and every case we accept converts to the recorded wreq value.
+#[test]
+fn conversions_match_the_wreq_debug_snapshot() {
+    let actual = WreqDebug {
+        profiles: Profile::ALL
+            .iter()
+            .map(|profile| {
+                let debug = our_conversion(profile.json().trim_end()).unwrap();
+                (profile.as_str().to_owned(), debug)
+            })
+            .collect(),
+        cases: cases()
+            .iter()
+            .filter_map(|case| {
+                let debug = our_conversion(&case.input).ok()?;
+                Some((case.name.clone(), debug))
+            })
+            .collect(),
+    };
+    let path = golden_path(WREQ_DEBUG_FILE);
+    if std::env::var_os("UPDATE_WREQ_DEBUG").is_some() {
+        let json = serde_json::to_string_pretty(&actual).unwrap();
+        std::fs::write(&path, format!("{json}\n")).unwrap();
+        return;
+    }
+    let recorded: WreqDebug =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        actual, recorded,
+        "wreq conversions changed; review the diff, then UPDATE_WREQ_DEBUG=1 cargo test"
+    );
 }
 
 #[test]
@@ -118,11 +153,6 @@ fn recorded_cases_match_the_fork() {
                 expected,
                 "our serde, {name}"
             );
-            assert_eq!(
-                &our_conversion(&case.input).unwrap(),
-                case.wreq_debug.as_ref().unwrap(),
-                "conversion to wreq, {name}"
-            );
             accepted += 1;
         } else {
             assert!(our_roundtrip(&case.input).is_err(), "should reject {name}");
@@ -151,8 +181,8 @@ fn known_differences_stay_as_documented() {
         assert!(our_roundtrip(&case(name).input).is_ok(), "we accept {name}");
     }
     // A hand-written short pseudo-header order is kept as sent by our serde, but the conversion
-    // completes it through wreq's builder. `recorded_cases_match_the_fork` checks both halves;
-    // this only makes sure the case is still recorded.
+    // completes it through wreq's builder. `recorded_cases_match_the_fork` checks the serde and
+    // the snapshot test the conversion; this only makes sure the case is still recorded.
     assert!(case("hand_written_pseudo_order").fork_output.is_some());
 }
 

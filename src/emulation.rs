@@ -104,15 +104,17 @@ impl From<&EmulationConfig> for wreq::Emulation {
         if let Some(http2) = &transport.http2_options {
             builder = builder.http2_options(http2.into());
         }
-        builder.build()
+        // A config carries no connection group; requests get wreq's default one.
+        builder.build(wreq::Group::default())
     }
 }
 
 /// Lets wreq's `emulation(...)` methods (on `ClientBuilder`, `RequestBuilder` and the WebSocket
-/// builder) take a config directly.
-impl wreq::EmulationFactory for EmulationConfig {
-    fn emulation(self) -> wreq::Emulation {
-        wreq::Emulation::from(&self)
+/// builder) take a config directly: wreq's `IntoEmulation` is implemented for every
+/// `Into<Emulation>`.
+impl From<EmulationConfig> for wreq::Emulation {
+    fn from(config: EmulationConfig) -> Self {
+        Self::from(&config)
     }
 }
 

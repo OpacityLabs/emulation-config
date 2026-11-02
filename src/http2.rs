@@ -251,17 +251,18 @@ impl Priorities {
     }
 }
 
-/// Extra SETTINGS entries.
+/// Extra SETTINGS entries. Dead on the wire: wreq 0.16 has no experimental settings.
 ///
-/// wreq only keeps settings with non-standard ids, but the wire format can only name standard
-/// ones. So this converts to an empty list in wreq, and the SDK always sends it empty.
+/// The field stays so existing payloads keep parsing. It converts to nothing: wreq removed the
+/// option in `0x676e67/wreq#1109`, and before that it only kept non-standard ids, which the
+/// format cannot name, so the SDK has always sent it empty.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExperimentalSettings {
     pub settings: Vec<Setting>,
 }
 
 impl ExperimentalSettings {
-    /// Builds the list the way wreq's builder does: only non-standard setting ids are kept.
+    /// Builds the list the way wreq's builder did: only non-standard setting ids are kept.
     /// [`SettingId`] only names standard ones, so the result is always empty.
     #[must_use]
     pub fn new(_settings: impl IntoIterator<Item = Setting>) -> Self {
@@ -281,7 +282,10 @@ pub struct Setting {
 /// HTTP/2 options, mirroring `wreq::http2::Http2Options`.
 ///
 /// Fields that are not `Option` are required in JSON, as they are for the fork. The `Default`
-/// matches `Http2Options::default()`.
+/// matches `Http2Options::default()` except for `max_frame_size` and `max_header_list_size`:
+/// wreq-proto 0.2.6 defaults both to 16384 and sends them in the SETTINGS frame, while this
+/// default leaves them unset, as wreq `v6.0.0-rc.28` did, so a config that omits them sends the
+/// same frame as before.
 ///
 /// wreq's builder ties `adaptive_window` to the two window sizes. The `set_*` methods for those
 /// fields apply the same rules. Writing the fields directly skips them.
@@ -307,11 +311,15 @@ pub struct Http2Config {
     pub no_rfc7540_priorities: Option<bool>,
     pub headers_pseudo_order: Option<PseudoOrder>,
     pub headers_stream_dependency: Option<StreamDependency>,
+    /// Read and written for wire compatibility only; wreq 0.16 has nothing to apply it to.
+    #[deprecated(note = "wreq 0.16 has no experimental settings; the conversion drops this field")]
     pub experimental_settings: Option<ExperimentalSettings>,
     pub settings_order: Option<SettingsOrder>,
     pub priorities: Option<Priorities>,
 }
 
+// The deprecated field is still part of the format, so the crate itself keeps filling it in.
+#[allow(deprecated)]
 impl Default for Http2Config {
     fn default() -> Self {
         Self {
@@ -393,7 +401,6 @@ impl From<&Http2Config> for wreq_h2::Http2Options {
         options.no_rfc7540_priorities = config.no_rfc7540_priorities;
         options.headers_pseudo_order = config.headers_pseudo_order.as_ref().map(Into::into);
         options.headers_stream_dependency = config.headers_stream_dependency.map(Into::into);
-        options.experimental_settings = config.experimental_settings.as_ref().map(Into::into);
         options.settings_order = config.settings_order.as_ref().map(Into::into);
         options.priorities = config.priorities.as_ref().map(Into::into);
         options
@@ -424,19 +431,6 @@ impl From<&Priorities> for wreq_h2::Priorities {
     fn from(priorities: &Priorities) -> Self {
         Self::builder()
             .extend(priorities.priorities.iter().copied().map(Into::into))
-            .build()
-    }
-}
-
-impl From<&ExperimentalSettings> for wreq_h2::ExperimentalSettings {
-    fn from(settings: &ExperimentalSettings) -> Self {
-        Self::builder()
-            .extend(
-                settings
-                    .settings
-                    .iter()
-                    .map(|setting| wreq_h2::Setting::from_id(setting.id, setting.value)),
-            )
             .build()
     }
 }

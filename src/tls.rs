@@ -3,9 +3,9 @@
 use std::borrow::Cow;
 
 use serde::{Deserialize, Deserializer, Serialize};
-use wreq::tls as wreq_tls;
+use wreq::tls::{self as wreq_tls, KeyShare, compress::CertificateCompressor};
 
-use crate::string_enum::string_enum;
+use crate::{cert_compression, string_enum::string_enum};
 
 string_enum! {
     /// A protocol offered through ALPN.
@@ -115,6 +115,11 @@ pub struct TlsConfig {
     pub record_size_limit: Option<u16>,
     #[serde(default, deserialize_with = "null_as_false")]
     pub psk_skip_session_ticket: bool,
+    /// How many of the leading `curves_list` groups get a key share in the `ClientHello`.
+    ///
+    /// wreq names the groups instead of counting them, so the conversion takes the first
+    /// `key_shares_limit` entries of `curves_list`. Without a `curves_list` nothing is derived
+    /// and `BoringSSL` sends its default shares.
     pub key_shares_limit: Option<u8>,
     #[serde(default = "default_true", deserialize_with = "null_as_true")]
     pub psk_dhe_ke: bool,
@@ -194,6 +199,53 @@ fn wreq_str(value: Option<&String>) -> Option<Cow<'static, str>> {
     value.map(|value| Cow::Owned(value.clone()))
 }
 
+/// The key shares wreq sends: the first `limit` groups of `curves_list`.
+///
+/// This is what the old `key_shares_limit` option did. `BoringSSL` generated a key share for each
+/// leading group of the supported-groups list and the limit cut that short; wreq 0.16 lists the
+/// groups instead. upstream's own Firefox presets map a limit of 2 over `X25519:P-256:...` to
+/// `[X25519, P256]` and a limit of 3 over `X25519MLKEM768:X25519:P-256:...` to
+/// `[X25519_MLKEM768, X25519, P256]`, which is what this gives.
+///
+/// A name `BoringSSL` does not know ends the list, since `curves_list` itself is rejected with it.
+fn key_shares(limit: Option<u8>, curves_list: Option<&str>) -> Option<Cow<'static, [KeyShare]>> {
+    let limit = usize::from(limit?);
+    let shares = curves_list?
+        .split(':')
+        .map_while(key_share)
+        .take(limit)
+        .collect();
+    Some(Cow::Owned(shares))
+}
+
+/// A group as `BoringSSL`'s `set_curves_list` names it: `kNamedGroups` in `ssl/ssl_key_share.cc`,
+/// plus the two finite-field groups btls patches in.
+fn key_share(group: &str) -> Option<KeyShare> {
+    Some(match group {
+        "P-256" | "prime256v1" => KeyShare::P256,
+        "P-384" | "secp384r1" => KeyShare::P384,
+        "P-521" | "secp521r1" => KeyShare::P521,
+        "X25519" | "x25519" => KeyShare::X25519,
+        "X25519Kyber768Draft00" => KeyShare::X25519_KYBER768_DRAFT00,
+        "X25519MLKEM768" => KeyShare::X25519_MLKEM768,
+        "MLKEM1024" => KeyShare::MLKEM1024,
+        "ffdhe2048" | "dhe2048" => KeyShare::FFDHE2048,
+        "ffdhe3072" | "dhe3072" => KeyShare::FFDHE3072,
+        _ => return None,
+    })
+}
+
+fn certificate_compressors(
+    algorithms: &[CertificateCompressionAlgorithm],
+) -> Cow<'static, [&'static dyn CertificateCompressor]> {
+    Cow::Owned(
+        algorithms
+            .iter()
+            .map(|&algorithm| cert_compression::compressor(algorithm.into()))
+            .collect(),
+    )
+}
+
 impl From<&TlsConfig> for wreq_tls::TlsOptions {
     fn from(config: &TlsConfig) -> Self {
         // Fields are set one by one because `TlsOptions` is `#[non_exhaustive]`.
@@ -213,15 +265,17 @@ impl From<&TlsConfig> for wreq_tls::TlsOptions {
         options.enable_signed_cert_timestamps = config.enable_signed_cert_timestamps;
         options.record_size_limit = config.record_size_limit;
         options.psk_skip_session_ticket = config.psk_skip_session_ticket;
-        options.key_shares_limit = config.key_shares_limit;
+        options.key_shares = key_shares(config.key_shares_limit, config.curves_list.as_deref());
         options.psk_dhe_ke = config.psk_dhe_ke;
         options.renegotiation = config.renegotiation;
         options.delegated_credentials = wreq_str(config.delegated_credentials.as_ref());
         options.curves_list = wreq_str(config.curves_list.as_ref());
         options.cipher_list = wreq_str(config.cipher_list.as_ref());
         options.sigalgs_list = wreq_str(config.sigalgs_list.as_ref());
-        options.certificate_compression_algorithms =
-            wreq_list(config.certificate_compression_algorithms.as_deref());
+        options.certificate_compressors = config
+            .certificate_compression_algorithms
+            .as_deref()
+            .map(certificate_compressors);
         options.extension_permutation = wreq_list(config.extension_permutation.as_deref());
         options.aes_hw_override = config.aes_hw_override;
         options.preserve_tls13_cipher_list = config.preserve_tls13_cipher_list;
@@ -261,7 +315,7 @@ impl From<TlsVersion> for wreq_tls::TlsVersion {
     }
 }
 
-impl From<CertificateCompressionAlgorithm> for wreq_tls::CertificateCompressionAlgorithm {
+impl From<CertificateCompressionAlgorithm> for wreq_tls::compress::CertificateCompressionAlgorithm {
     fn from(algorithm: CertificateCompressionAlgorithm) -> Self {
         match algorithm {
             CertificateCompressionAlgorithm::Zlib => Self::ZLIB,
@@ -301,8 +355,10 @@ impl From<ExtensionType> for wreq_tls::ExtensionType {
             ExtensionType::KeyShare => Self::KEY_SHARE,
             ExtensionType::Renegotiate => Self::RENEGOTIATE,
             ExtensionType::DelegatedCredential => Self::DELEGATED_CREDENTIAL,
-            ExtensionType::ApplicationSettings => Self::APPLICATION_SETTINGS,
-            ExtensionType::ApplicationSettingsNew => Self::APPLICATION_SETTINGS_NEW,
+            // The wire names come from boring2, where `APPLICATION_SETTINGS` was codepoint 17513
+            // and `APPLICATION_SETTINGS_NEW` 17613. btls calls those `_OLD` and plain.
+            ExtensionType::ApplicationSettings => Self::APPLICATION_SETTINGS_OLD,
+            ExtensionType::ApplicationSettingsNew => Self::APPLICATION_SETTINGS,
             ExtensionType::EncryptedClientHello => Self::ENCRYPTED_CLIENT_HELLO,
             ExtensionType::CertificateTimestamp => Self::CERTIFICATE_TIMESTAMP,
             ExtensionType::NextProtoNeg => Self::NEXT_PROTO_NEG,
