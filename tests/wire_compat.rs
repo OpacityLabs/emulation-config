@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use emulation_config::{EmulationConfig, Profile};
+use emulation_config::{EmulationConfig, Profile, TlsConfig, tls::KeyShare};
 use pretty_assertions::assert_eq;
 use serde::{Deserialize, Serialize};
 use wreq::header::{HeaderMap, HeaderName, HeaderValue};
@@ -260,4 +260,34 @@ fn too_many_distinct_header_names_is_an_error() {
             "{what}: {error}"
         );
     }
+}
+
+// `key_shares` has no recording: the fork never had it. The recorded cases and the profiles above
+// show that leaving it unset writes exactly what the fork wrote.
+
+#[test]
+fn key_shares_is_left_out_of_the_json_when_unset() {
+    let json = serde_json::to_string(&TlsConfig::default()).unwrap();
+    assert!(!json.contains(r#""key_shares":"#), "{json}");
+}
+
+#[test]
+fn key_shares_reads_and_writes_group_names() {
+    let mut config = Profile::Firefox147Macos.config();
+    let tls = config.transport.tls_options.as_mut().unwrap();
+    tls.key_shares = Some(vec![KeyShare::X25519Mlkem768, KeyShare::X25519]);
+
+    let json = serde_json::to_string(&config).unwrap();
+    assert!(
+        json.contains(r#""key_shares":["X25519MLKEM768","X25519"]"#),
+        "{json}"
+    );
+    let read: EmulationConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(read.transport.tls_options, config.transport.tls_options);
+}
+
+#[test]
+fn an_unknown_key_share_group_is_rejected() {
+    let error = serde_json::from_str::<TlsConfig>(r#"{"key_shares":["P-999"]}"#).unwrap_err();
+    assert!(error.to_string().contains("P-999"), "{error}");
 }

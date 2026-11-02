@@ -6,8 +6,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Every release states:
 - **wreq**: the wreq tag it pins. A project using this release must use the same wreq.
-- **Wire format**: whether the JSON the SDK sends to the TEE changed. If it did, deploy the TEE
-  before any SDK that writes the new format.
+- **Wire format**: whether the JSON the SDK writes changed. If it did, update every reader before
+  any SDK that writes the new format.
 - **API**: whether code that uses the crate has to change.
 - **Profiles**: which built-in profiles were added, changed or removed. A changed profile sends a
   different fingerprint.
@@ -15,10 +15,37 @@ Every release states:
 A **Breaking** section lists each change that makes a config, a request or code that worked
 before fail or act differently, and who it affects.
 
+## [0.4.0] - 2026-11-02
+
+wreq: `OpacityLabs/wreq` `v0.16.3-opacity.1`, the fork of upstream `v0.16.3`
+Wire format: one optional key added, `tls_options.key_shares`. A payload without it is unchanged.
+A reader on 0.3.x or older ignores the key and uses `key_shares_limit` instead, so update readers
+before any flow sets it.
+API: `TlsConfig` has a new public field, see Breaking. Three items are new, see Added.
+
+### Breaking
+- The pinned wreq is now `v0.16.3-opacity.1`. A project that moves to this release must move its
+  own wreq to the same tag, pinned as `version = "0.16.3-opacity.1", tag = "v0.16.3-opacity.1"`,
+  or Cargo builds two copies of wreq and the project does not compile.
+- `TlsConfig` has a new public field, `key_shares`. Code that builds a `TlsConfig` with a struct
+  literal and no `..TlsConfig::default()` no longer compiles.
+
+### Added
+- `TlsConfig::key_shares`: the groups that get a key share, named as in `curves_list`
+  (`tls::KeyShare`). It is wreq 0.16's own option and wins over `key_shares_limit`. When unset it
+  is left out of the JSON.
+- `EmulationConfig::move_cookie_slot_to_header_order`: moves a `cookie` entry out of `headers`
+  into the header order and returns its value. The cookies wreq takes from a cookie store then go
+  in that slot, and over HTTP/2 they go as one `cookie` field per cookie, as browsers send them.
+- `OrigHeaders::contains`.
+
+### Profiles
+- None changed.
+
 ## [0.3.0] - 2026-11-02
 
 wreq: `OpacityLabs/wreq` `v0.16.1-opacity.1`, the fork of upstream `v0.16.1`
-Wire format: unchanged. Two fields mean something new on the TEE side, see Breaking.
+Wire format: unchanged. Two fields convert to wreq differently, see Breaking.
 API: `EmulationConfig` converts into `wreq::Emulation` by value as well as by reference; wreq's
 `IntoEmulation` covers that, so `emulation(config)` still works. `wreq::EmulationFactory` no
 longer exists. `Http2Config::experimental_settings` is deprecated.
@@ -38,7 +65,7 @@ longer exists. `Http2Config::experimental_settings` is deprecated.
   cannot name a setting wreq would have kept, so nothing on the wire changes.
 - The TLS binding is btls instead of boring2 and the HTTP/2 crate is 0.5.20 instead of 0.5.11.
   The JA4 and Akamai fingerprints of every profile should be compared against a capture before
-  the TEE moves to this release.
+  relying on this release.
 
 ### Added
 - The zlib, brotli and zstd certificate compressors, which wreq 0.16 no longer ships. The
@@ -80,7 +107,7 @@ code that reads them calls `get()`.
 ### Breaking
 - A `keep_alive_interval` or `keep_alive_timeout` above one day is now rejected, and with it
   the whole config. The fork accepted any value. wreq adds both to an `Instant` when it schedules
-  a keep-alive ping, which panics for values near `Duration::MAX`, so a TEE reading such a
+  a keep-alive ping, which panics for values near `Duration::MAX`, so a client built from such a
   config would panic on the first HTTP/2 connection. No SDK flow and no profile sets either
   field.
 
@@ -116,7 +143,7 @@ API: first release.
 
 ### Breaking
 
-Compared with the fork's serde, which the TEE used to read the config with:
+Compared with the fork's serde:
 - These numbers are now rejected, and with them the whole config:
   - an `initial_stream_id` that is even (including 0), or 2³¹ or more;
   - a `max_frame_size` outside 16,384 to 16,777,215;
@@ -125,8 +152,8 @@ Compared with the fork's serde, which the TEE used to read the config with:
 
   The fork accepted them. HTTP/1.1 requests then worked, and HTTP/2 connections panicked. This
   was observed with wreq `v6.0.0-rc.28` and a local HTTP/1.1 server. An SDK that uses the fork
-  sends the first three when a flow sets them, so after the TEE moves to this crate, such a flow
-  fails on HTTP/1.1 sites too. No SDK flow sets them.
+  sends the first three when a flow sets them, so once its configs are read with this crate, such
+  a flow fails on HTTP/1.1 sites too. No SDK flow sets them.
 - A stream id with the top bit set (2³¹ or more) is now rejected. The fork sent it with that bit
   set. SDKs never send one: the Lua parser on the fork panics on it, and the current one rejects
   it.

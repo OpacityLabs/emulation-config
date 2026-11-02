@@ -2,8 +2,8 @@
 
 Each case in tests/golden/wire_cases.json records an input and what the fork's serde did with
 it. Those two fields are the wire-format contract: every version of this crate must keep
-reading them the same way, so a new version never breaks SDKs or TEEs on an older one. New cases
-may be added. Existing ones never change or go away.
+reading them the same way, so a new version never breaks readers or writers on an older one.
+New cases may be added. Existing ones never change or go away.
 
 Usage: goldens_only_grow.py <base commit>
 """

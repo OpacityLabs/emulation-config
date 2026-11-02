@@ -4,7 +4,7 @@ Plain-data emulation configs for [wreq](https://github.com/OpacityLabs/wreq): de
 header order, and TLS, HTTP/1 and HTTP/2 options. It ships the browser presets
 published by the wreq project as built-in profiles, and every field can be changed.
 
-The JSON format is the one the SDK sends to the TEE. This crate reads and writes it byte for byte
+The JSON format is the SDK's wire format. This crate reads and writes it byte for byte
 like the serde code that lived in the `OpacityLabs/wreq` fork (`v6.0.0-rc.28`) and
 `OpacityLabs/http2` (`v0.5.11`). The format is defined here rather than inside wreq, so wreq's
 internals can change without changing what goes over the wire, and wreq itself needs no serde.
@@ -69,6 +69,7 @@ This crate has its own version. It pins wreq in `Cargo.toml` (and the exact comm
 | 0.1.x | `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.1`: no serde, http2 0.5.11 from crates.io |
 | 0.2.x | `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.2`: `ClientBuilder::tcp_stream` in place of `socket` |
 | 0.3.x | `OpacityLabs/wreq` `v0.16.1-opacity.1`: upstream `v0.16.1` (btls, wreq-proto, http2 0.5.20). wreq needs its `tokio-rt` feature |
+| 0.4.x | `OpacityLabs/wreq` `v0.16.3-opacity.1`: upstream `v0.16.3`. wreq needs its `tokio-rt` feature |
 
 [CHANGELOG.md](CHANGELOG.md) records, for every release, the wreq it pins, whether the wire
 format changed, and which profiles changed.
@@ -124,6 +125,9 @@ Decoded, a payload looks like this (values shortened):
 - `key_shares_limit` is the number of leading `curves_list` groups that get a key share. wreq
   0.16 names the groups instead, so the conversion takes the first N entries of `curves_list`,
   the mapping upstream's own Firefox presets use. With no `curves_list` the limit does nothing.
+- `key_shares` names the groups directly (`["X25519MLKEM768", "X25519"]`, as in `curves_list`)
+  and wins over `key_shares_limit`. The fork had no such key, so it is left out of the JSON when
+  unset, and a reader on 0.3.x or older ignores it.
 
 ## How the format is checked
 

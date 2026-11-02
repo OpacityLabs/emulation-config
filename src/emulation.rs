@@ -1,7 +1,7 @@
 //! The top-level emulation config.
 
 use serde::{Deserialize, Serialize};
-use wreq::header::HeaderMap;
+use wreq::header::{COOKIE, HeaderMap, HeaderValue};
 
 use crate::{
     headers::{OrigHeaders, header_pairs},
@@ -59,6 +59,35 @@ impl EmulationConfig {
         let mut value = serde_json::to_value(self)?;
         merge_patch(&mut value, patch);
         serde_json::from_value(value)
+    }
+
+    /// Moves a `cookie` entry from [`headers`](Self::headers) into the header order, and returns
+    /// the value the entry held.
+    ///
+    /// wreq asks a cookie store only when a request has no `Cookie` header. It puts the store's
+    /// cookies in the order's `cookie` slot, or after every other header when the order has none.
+    /// Over HTTP/2 the store can send one `cookie` field per cookie, as browsers do, which a
+    /// `Cookie` header in `headers` cannot. After this call the store's cookies go where the entry
+    /// was.
+    ///
+    /// An order that already lists `cookie` keeps its slot. Otherwise `cookie` goes right after the
+    /// last header that comes before it in `headers` and is in the order. An empty order gets the
+    /// headers before `cookie` in their `headers` order, so no other header moves.
+    pub fn move_cookie_slot_to_header_order(&mut self) -> Option<HeaderValue> {
+        let position = self.headers.keys().position(|name| name == COOKIE)?;
+        let preceding = self
+            .headers
+            .keys()
+            .take(position)
+            .cloned()
+            .collect::<Vec<_>>();
+        let value = self.headers.remove(COOKIE);
+        if self.orig_headers.is_empty() {
+            self.orig_headers = preceding.into_iter().chain([COOKIE]).collect();
+        } else if !self.orig_headers.contains(&COOKIE) {
+            self.orig_headers.insert_after_last_of(&preceding, COOKIE);
+        }
+        value
     }
 }
 
@@ -121,8 +150,85 @@ impl From<EmulationConfig> for wreq::Emulation {
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
+    use wreq::header::{ACCEPT, COOKIE, HeaderName, HeaderValue, USER_AGENT};
 
     use super::merge_patch;
+    use crate::{EmulationConfig, OrigHeaderName, OrigHeaders, Profile};
+
+    fn order_names(config: &EmulationConfig) -> Vec<String> {
+        config
+            .orig_headers
+            .iter()
+            .map(|name| match name {
+                OrigHeaderName::Cased(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+                OrigHeaderName::Standard(name) => name.as_str().to_owned(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_cookie_entry_becomes_a_slot_in_an_empty_order() {
+        // A `user-agent` and an empty `cookie` entry, and no order: an empty entry marks the slot.
+        let mut config = EmulationConfig::default();
+        config
+            .headers
+            .insert(USER_AGENT, HeaderValue::from_static("ua"));
+        config.headers.insert(COOKIE, HeaderValue::from_static(""));
+        let value = config.move_cookie_slot_to_header_order();
+        assert_eq!(value, Some(HeaderValue::from_static("")));
+        assert!(!config.headers.contains_key(COOKIE));
+        assert!(config.headers.contains_key(USER_AGENT));
+        assert_eq!(order_names(&config), ["user-agent", "cookie"]);
+    }
+
+    #[test]
+    fn an_order_that_lists_cookie_keeps_its_slot() {
+        let mut config = EmulationConfig::default();
+        config
+            .headers
+            .insert(COOKIE, HeaderValue::from_static("a=1"));
+        config.orig_headers = [
+            USER_AGENT,
+            ACCEPT,
+            COOKIE,
+            HeaderName::from_static("priority"),
+        ]
+        .into_iter()
+        .collect::<OrigHeaders>();
+        let order = config.orig_headers.clone();
+        let value = config.move_cookie_slot_to_header_order();
+        assert_eq!(value, Some(HeaderValue::from_static("a=1")));
+        assert_eq!(config.orig_headers, order);
+    }
+
+    #[test]
+    fn cookie_goes_after_the_last_listed_header_before_it() {
+        let mut config = EmulationConfig::default();
+        config
+            .headers
+            .insert(USER_AGENT, HeaderValue::from_static("ua"));
+        config.headers.insert(
+            HeaderName::from_static("x-unlisted"),
+            HeaderValue::from_static("1"),
+        );
+        config.headers.insert(COOKIE, HeaderValue::from_static(""));
+        config.orig_headers = [ACCEPT, USER_AGENT, HeaderName::from_static("priority")]
+            .into_iter()
+            .collect::<OrigHeaders>();
+        config.move_cookie_slot_to_header_order();
+        assert_eq!(
+            order_names(&config),
+            ["accept", "user-agent", "cookie", "priority"]
+        );
+    }
+
+    #[test]
+    fn a_config_without_a_cookie_entry_is_unchanged() {
+        let mut config = Profile::Chrome145Macos.config();
+        let order = config.orig_headers.clone();
+        assert_eq!(config.move_cookie_slot_to_header_order(), None);
+        assert_eq!(config.orig_headers, order);
+    }
 
     #[test]
     fn merge_patch_matches_rfc_7386_appendix_a() {
