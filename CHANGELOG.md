@@ -15,6 +15,45 @@ Every release states:
 A **Breaking** section lists each change that makes a config, a request or code that worked
 before fail or act differently, and who it affects.
 
+## [0.3.0] - 2026-11-02
+
+wreq: `OpacityLabs/wreq` `v0.16.1-opacity.1`, the fork of upstream `v0.16.1`
+Wire format: unchanged. Two fields mean something new on the TEE side, see Breaking.
+API: `EmulationConfig` converts into `wreq::Emulation` by value as well as by reference; wreq's
+`IntoEmulation` covers that, so `emulation(config)` still works. `wreq::EmulationFactory` no
+longer exists. `Http2Config::experimental_settings` is deprecated.
+
+### Breaking
+- The pinned wreq is `v0.16.1-opacity.1`. A project that moves to this release must move its
+  own wreq to the same tag, enable wreq's `tokio-rt` feature (wreq 0.16 does not build without a
+  runtime feature), and pin `http2` 0.5.20 where it pins the http2 crate. The crate version at
+  that tag is a pre-release, which Cargo only matches when the requirement names it, so pin it as
+  `version = "0.16.1-opacity.1", tag = "v0.16.1-opacity.1"`.
+- `key_shares_limit` now derives wreq's `key_shares`: the first N groups of `curves_list`.
+  Upstream replaced the limit with an explicit list when it moved from boring2 to btls, and
+  this is the mapping its own Firefox presets use. The three Firefox profiles send the same key
+  shares as before. A config with a limit and no `curves_list` gets BoringSSL's default shares.
+- `experimental_settings` is dead: wreq removed the option (`0x676e67/wreq#1109`). It is still
+  read and written, and the conversion drops it. No flow or profile sets it, and the format
+  cannot name a setting wreq would have kept, so nothing on the wire changes.
+- The TLS binding is btls instead of boring2 and the HTTP/2 crate is 0.5.20 instead of 0.5.11.
+  The JA4 and Akamai fingerprints of every profile should be compared against a capture before
+  the TEE moves to this release.
+
+### Added
+- The zlib, brotli and zstd certificate compressors, which wreq 0.16 no longer ships. The
+  conversion registers them for the algorithms a config names, so the `compress_certificate`
+  extension stays as it was.
+
+### Changed
+- The recorded wreq values moved from `tests/golden/profiles_wreq_debug.json` and the
+  `wreq_debug` fields of `wire_cases.json` to `tests/golden/wreq_debug.json`, a snapshot of
+  this crate's own conversion that `UPDATE_WREQ_DEBUG=1 cargo test` rewrites.
+  `wire_cases.json` keeps only the wire contract: `input` and `fork_output`.
+
+### Profiles
+- None changed.
+
 ## [0.2.0] - 2026-10-19
 
 wreq: `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.2`

@@ -15,23 +15,33 @@ use wreq::{
     tls::TlsOptions,
 };
 
+/// `Debug` output, since wreq's option types have no `PartialEq`.
+fn debug<T: std::fmt::Debug>(value: T) -> String {
+    format!("{value:?}")
+}
+
 #[test]
 fn defaults_match_wreq() {
     assert_eq!(
-        TlsOptions::from(&TlsConfig::default()),
-        TlsOptions::default()
+        debug(TlsOptions::from(&TlsConfig::default())),
+        debug(TlsOptions::default())
     );
     assert_eq!(
-        Http1Options::from(&Http1Config::default()),
-        Http1Options::default()
+        debug(Http1Options::from(&Http1Config::default())),
+        debug(Http1Options::default())
+    );
+    // wreq-proto 0.2.6 defaults these two to 16384; the fork left them unset, and so do we, so
+    // a config that omits them sends the same SETTINGS frame as before.
+    let mut wreq_default = Http2Options::default();
+    wreq_default.max_frame_size = None;
+    wreq_default.max_header_list_size = None;
+    assert_eq!(
+        debug(Http2Options::from(&Http2Config::default())),
+        debug(wreq_default)
     );
     assert_eq!(
-        Http2Options::from(&Http2Config::default()),
-        Http2Options::default()
-    );
-    assert_eq!(
-        format!("{:?}", wreq::Emulation::from(&EmulationConfig::default())),
-        format!("{:?}", wreq::Emulation::default()),
+        debug(wreq::Emulation::from(&EmulationConfig::default())),
+        debug(wreq::Emulation::builder().build(wreq::Group::default())),
     );
 }
 
@@ -102,7 +112,11 @@ fn window_setters_match_the_wreq_builder() {
             call.apply(&mut ours);
             built = call.build(built);
         }
-        assert_eq!(Http2Options::from(&ours), built.build(), "calls: {calls:?}");
+        assert_eq!(
+            debug(Http2Options::from(&ours)),
+            debug(built.build()),
+            "calls: {calls:?}"
+        );
     }
 }
 
@@ -183,23 +197,29 @@ fn priorities_new_matches_the_wreq_builder() {
     let ours_list: Vec<wreq::http2::Priority> =
         ours.priorities.iter().copied().map(Into::into).collect();
     assert_eq!(ours_list, built);
-    let built_max = built
-        .iter()
-        .map(|p| u32::from(p.stream_id()))
-        .max()
-        .unwrap_or(0);
+    let built_max = built.iter().map(stream_id).max().unwrap_or(0);
     assert_eq!(ours.max_stream_id.get(), built_max);
 }
 
+/// The stream id of a PRIORITY frame, read back from the frame header `encode` writes (RFC
+/// 9113, section 4.1: bytes 5 to 8, top bit reserved). http2 has no getter for it.
+fn stream_id(priority: &wreq::http2::Priority) -> u32 {
+    let mut frame = Vec::new();
+    priority.encode(&mut frame);
+    u32::from_be_bytes([frame[5], frame[6], frame[7], frame[8]]) & 0x7FFF_FFFF
+}
+
+/// wreq no longer takes experimental settings, so the builder rule is checked against the
+/// http2 crate it uses, which still has the type.
 #[test]
-fn experimental_settings_new_matches_the_wreq_builder() {
+fn experimental_settings_new_matches_the_http2_builder() {
     let settings: Vec<http2::Setting> = SettingId::ALL
         .iter()
         .map(|&id| http2::Setting { id, value: 1 })
         .collect();
 
     let ours = http2::ExperimentalSettings::new(settings.iter().copied());
-    let built = wreq::http2::ExperimentalSettings::builder()
+    let built = wreq_http2::frame::ExperimentalSettings::builder()
         .extend(
             settings
                 .iter()

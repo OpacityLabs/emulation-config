@@ -7,7 +7,9 @@
 
 use bytes::Bytes;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-use wreq::header::{HeaderMap, HeaderName, HeaderValue, IntoOrigHeaderName, OrigHeaderMap};
+use wreq::header::{
+    HeaderCaseName, HeaderMap, HeaderName, HeaderValue, IntoHeaderCaseName, OrigHeaderMap,
+};
 
 const CASED_TAG: u8 = 0;
 const STANDARD_TAG: u8 = 1;
@@ -91,10 +93,10 @@ impl OrigHeaderName {
         }
     }
 
-    fn to_wreq(&self) -> wreq::header::OrigHeaderName {
+    fn to_wreq(&self) -> HeaderCaseName {
         match self {
-            Self::Cased(bytes) => bytes.clone().into_orig_header_name(),
-            Self::Standard(name) => name.clone().into_orig_header_name(),
+            Self::Cased(bytes) => bytes.clone().into_header_case_name(),
+            Self::Standard(name) => name.clone().into_header_case_name(),
         }
     }
 }

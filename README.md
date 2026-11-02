@@ -25,8 +25,9 @@ let config: EmulationConfig = serde_json::from_slice(&body)?;
 let client = wreq::Client::builder().emulation(config).build()?;
 ```
 
-`EmulationConfig` implements wreq's `EmulationFactory`, so every wreq `emulation(...)` method
-takes it. `wreq::Emulation::from(&config)` gives the wreq value itself.
+`EmulationConfig` converts into `wreq::Emulation`, and wreq's `IntoEmulation` covers every such
+type, so every wreq `emulation(...)` method takes it. `wreq::Emulation::from(&config)` gives the
+wreq value itself.
 
 Two ways to customize:
 
@@ -50,10 +51,12 @@ fields directly, or patching them, stores the values as given, so set all three 
 `Http1Options` and `Http2Options`. Conversion goes one way, from config to wreq.
 
 `TlsConfig::default()`, `Http1Config::default()` and `Http2Config::default()` equal wreq's own
-defaults. `PseudoOrder::new`, `SettingsOrder::new`, `Priorities::new` and
-`ExperimentalSettings::new` clean up their input the same way wreq's builders do, and the
-`Http2Config` window setters apply the builder's window rules. So a config built in code
-produces the same JSON the wreq builders produce. The SDK's Lua
+defaults, with one exception: wreq 0.16 defaults `max_frame_size` and `max_header_list_size` to
+16384 and sends both in the SETTINGS frame, while `Http2Config::default()` leaves them unset, as
+the fork did, so a config that omits them sends the same frame as before. `PseudoOrder::new`,
+`SettingsOrder::new`, `Priorities::new` and `ExperimentalSettings::new` clean up their input the
+same way wreq's builders do, and the `Http2Config` window setters apply the builder's window
+rules. So a config built in code produces the same JSON the wreq builders produce. The SDK's Lua
 parser builds configs this way.
 
 ## Versions and wreq
@@ -65,6 +68,7 @@ This crate has its own version. It pins wreq in `Cargo.toml` (and the exact comm
 |---|---|
 | 0.1.x | `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.1`: no serde, http2 0.5.11 from crates.io |
 | 0.2.x | `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.2`: `ClientBuilder::tcp_stream` in place of `socket` |
+| 0.3.x | `OpacityLabs/wreq` `v0.16.1-opacity.1`: upstream `v0.16.1` (btls, wreq-proto, http2 0.5.20). wreq needs its `tokio-rt` feature |
 
 [CHANGELOG.md](CHANGELOG.md) records, for every release, the wreq it pins, whether the wire
 format changed, and which profiles changed.
@@ -114,31 +118,36 @@ Decoded, a payload looks like this (values shortened):
 - `prefer_chacha20` is the wire name of wreq's `preserve_tls13_cipher_list`.
 - A missing `alpn_protocols` means no ALPN at all. This is the one missing key whose value
   differs from wreq's default (`["h2", "http/1.1"]`).
-- `experimental_settings` cannot carry anything. The format only names standard settings, and
-  wreq drops standard ids from this list, so the SDK always sends it empty.
+- `experimental_settings` is dead. wreq 0.16 has no such option, and before that the format
+  could only name standard settings, which wreq dropped from this list, so the SDK always sends
+  it empty. It is still read and written, and the conversion ignores it.
+- `key_shares_limit` is the number of leading `curves_list` groups that get a key share. wreq
+  0.16 names the groups instead, so the conversion takes the first N entries of `curves_list`,
+  the mapping upstream's own Firefox presets use. With no `curves_list` the limit does nothing.
 
 ## How the format is checked
 
-The reference is the fork's serde (`OpacityLabs/wreq` tag `v6.0.0-rc.28`), recorded in
-`tests/golden/`. No expected output is written by hand, and the tests never call the fork's
-serde, so they keep working once that code is removed from wreq.
+The reference for the wire format is the fork's serde (`OpacityLabs/wreq` tag `v6.0.0-rc.28`),
+recorded in `tests/golden/`. No expected output is written by hand, and the tests never call the
+fork's serde, so they keep working now that the code is gone from wreq.
 
 - `tests/golden/wire_cases.json`: 55 inputs (edge cases, rejected inputs, every enum value) with
-  what the fork wrote back or whether it rejected them, plus `Debug` of the wreq value each one
-  must convert to.
-- `tests/golden/profiles_wreq_debug.json`: `Debug` of the wreq value each profile must convert
-  to.
+  what the fork wrote back or whether it rejected them. Recorded cases are never edited or
+  removed, only added: CI fails if a case's `input` or `fork_output` differs from the base
+  branch (`.github/scripts/goldens_only_grow.py`).
+- `tests/golden/wreq_debug.json`: `Debug` of the wreq value each profile and each accepted case
+  converts to. This is a snapshot of the crate's own conversion, not a recording of the fork.
+  `UPDATE_WREQ_DEBUG=1 cargo test` rewrites it; the diff is reviewed with the change that caused
+  it, and a change that alters what goes on the wire is a Breaking entry.
 
-A diff under `profiles/` or `tests/golden/` means a profile's fingerprint or the wire format
-changed, so it comes with an entry in [CHANGELOG.md](CHANGELOG.md). Recorded cases are never
-edited or removed, only added: CI fails if a case's `input` or `fork_output` differs from the
-base branch (`.github/scripts/goldens_only_grow.py`).
+A diff under `profiles/` or `tests/golden/` means a profile's fingerprint, the wire format or a
+conversion changed, so it comes with an entry in [CHANGELOG.md](CHANGELOG.md).
 
 The tests check that:
-- every profile reproduces byte for byte through this crate's serde and `Profile::config()`, and
-  converts to the recorded wreq value;
-- every recorded case gives the fork's output and wreq value, or is rejected like the fork
-  rejected it;
+- every profile reproduces byte for byte through this crate's serde and `Profile::config()`;
+- every recorded case gives the fork's output, or is rejected like the fork rejected it;
+- every profile and every accepted case converts to the wreq value in the snapshot;
+- the zlib, brotli and zstd certificate compressors round-trip and report their algorithm;
 - defaults, the builder-style constructors and the window setters match wreq's own (the setters
   against every sequence of up to three window calls on wreq's builder);
 - past the most distinct header names an `http::HeaderMap` holds, reading returns an error

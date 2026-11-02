@@ -20,6 +20,7 @@
 //! `wreq::Emulation::from(&config)` gives the wreq value itself, when you need it without a
 //! builder.
 
+mod cert_compression;
 mod checked_number;
 mod emulation;
 mod headers;
