@@ -72,3 +72,28 @@ impl Profile {
         serde_json::from_str(self.json()).expect("built-in profiles are valid")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Profile;
+    use crate::CookieConfig;
+
+    #[test]
+    fn browser_profiles_send_cookies_like_the_measured_browsers() {
+        for &profile in Profile::ALL {
+            let expected = match profile {
+                Profile::Chrome145Macos | Profile::Chrome145Windows | Profile::Chrome145Android => {
+                    CookieConfig::CHROME
+                }
+                Profile::Firefox147Macos
+                | Profile::Firefox147Windows
+                | Profile::FirefoxAndroid135 => CookieConfig::FIREFOX,
+                // Not measured yet, so these keep the default.
+                Profile::Safari26_2 | Profile::SafariIos26_2 | Profile::SafariIpad26_2 => {
+                    CookieConfig::default()
+                }
+            };
+            assert_eq!(profile.config().cookies, expected, "{}", profile.as_str());
+        }
+    }
+}

@@ -1,7 +1,7 @@
 # emulation-config
 
 Plain-data emulation configs for [wreq](https://github.com/OpacityLabs/wreq): default headers,
-header order, and TLS, HTTP/1 and HTTP/2 options. It ships the browser presets
+header order, TLS, HTTP/1 and HTTP/2 options, and how cookies go out. It ships the browser presets
 published by the wreq project as built-in profiles, and every field can be changed.
 
 The JSON format is the SDK's wire format. This crate reads and writes it byte for byte
@@ -70,6 +70,7 @@ This crate has its own version. It pins wreq in `Cargo.toml` (and the exact comm
 | 0.2.x | `OpacityLabs/wreq` `v6.0.0-rc.28.opacity.2`: `ClientBuilder::tcp_stream` in place of `socket` |
 | 0.3.x | `OpacityLabs/wreq` `v0.16.1-opacity.1`: upstream `v0.16.1` (btls, wreq-proto, http2 0.5.20). wreq needs its `tokio-rt` feature |
 | 0.4.x | `OpacityLabs/wreq` `v0.16.3-opacity.1`: upstream `v0.16.3`. wreq needs its `tokio-rt` feature |
+| 0.5.x | `OpacityLabs/wreq` `v0.16.3-opacity.1`, as 0.4.x. wreq needs its `tokio-rt` and `cookies` features |
 
 [CHANGELOG.md](CHANGELOG.md) records, for every release, the wreq it pins, whether the wire
 format changed, and which profiles changed.
@@ -95,6 +96,35 @@ browser (for example from tls.peet.ws) before relying on one.
 
 Each profile is listed in the `profiles!` macro in `src/profiles.rs`. A test fails until that
 list and the `profiles/` folder match.
+
+The `cookies` setting is ours, not part of the wreq-util presets. The Chrome profiles use
+`CookieConfig::CHROME` and the Firefox profiles `CookieConfig::FIREFOX`, measured on Chrome 156
+and Firefox 157. The Safari profiles keep the default.
+
+## Cookies
+
+wreq takes the cookies for a request from a `wreq::cookie::CookieStore`, not from the
+`Emulation`. `EmulationConfig::cookies` describes how the client being emulated sends them, and
+the cookie store applies it:
+
+| Setting | Default | Chrome | Firefox |
+|---|---|---|---|
+| `layout` over HTTP/2 and HTTP/3 | `combined`: one field | `split`: one field per cookie | `split` |
+| `overwrite`: a cookie set again with a new value | `keep_creation_time`: keeps its place | `renew_on_new_value`: moves to the end | `keep_creation_time` |
+| `never_index_below`: HPACK "never indexed" for shorter fields | `null` | `null` | `20` |
+
+Over HTTP/1.x every setting gives one combined field, as RFC 6265 requires.
+
+One HPACK difference stays. http2 0.5.20 never adds a cookie field to the HPACK table
+(`Header::skip_value_index`, a rule taken from nghttp2), so a field that is not marked "never
+indexed" goes out as a literal without indexing on every request. Chrome adds every cookie field
+to the table on its first request and then sends an index, and Firefox does the same for fields
+of 20 bytes or more. A capture of wreq with the Chrome and Firefox profiles shows this. Matching
+the browsers needs a change in http2. Both browsers sort
+longest path first, then oldest first. The store sorts, and calls
+`CookieOverwrite::renews_creation_time` when a response sets a cookie again, then
+`CookieConfig::request_cookies` to build the fields. `EmulationConfig::move_cookie_slot_to_header_order`
+puts the fields in their place in the header order.
 
 ## Wire format
 
@@ -125,6 +155,9 @@ Decoded, a payload looks like this (values shortened):
 - `key_shares_limit` is the number of leading `curves_list` groups that get a key share. wreq
   0.16 names the groups instead, so the conversion takes the first N entries of `curves_list`,
   the mapping upstream's own Firefox presets use. With no `curves_list` the limit does nothing.
+- `cookies` is left out when it is the default (`{"layout":"combined","overwrite":
+  "keep_creation_time","never_index_below":null}`), so a config that does not set it writes the
+  same JSON as before. A reader on 0.4.x or older rejects a payload with the key.
 - `key_shares` names the groups directly (`["X25519MLKEM768", "X25519"]`, as in `curves_list`)
   and wins over `key_shares_limit`. The fork had no such key, so it is left out of the JSON when
   unset, and a reader on 0.3.x or older ignores it.
@@ -162,6 +195,8 @@ The tests check that:
   limit makes it fail. `KeepAliveDuration` has a round limit of one day instead, and the test
   checks that `Instant + Duration`, which wreq's keep-alive code uses, still panics near
   `Duration::MAX` and not at that limit;
+- the cookie presets give the field layout, overwrite rule and HPACK marking captured from
+  Chrome 156 and Firefox 157, and every browser profile carries its preset;
 - `patched()` matches making the same change in code, and the merge logic passes every example
   in RFC 7386, Appendix A.
 

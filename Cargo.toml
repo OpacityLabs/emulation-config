@@ -1,6 +1,6 @@
 [package]
 name = "emulation-config"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "Plain-data emulation configs for wreq, in the SDK's JSON wire format"
 publish = false
@@ -18,9 +18,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.21"
 zstd = "0.13.3"
-# Every 0.4.x release pins this wreq tag. A project using this crate must use the same wreq (see
+# Every 0.5.x release pins this wreq tag. A project using this crate must use the same wreq (see
 # "Versions and wreq" in the README).
-wreq = { version = "0.16.3-opacity.1", git = "https://github.com/OpacityLabs/wreq", tag = "v0.16.3-opacity.1", default-features = false, features = ["tokio-rt"] }
+wreq = { version = "0.16.3-opacity.1", git = "https://github.com/OpacityLabs/wreq", tag = "v0.16.3-opacity.1", default-features = false, features = ["tokio-rt", "cookies"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

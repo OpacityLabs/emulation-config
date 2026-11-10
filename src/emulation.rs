@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use wreq::header::{COOKIE, HeaderMap, HeaderValue};
 
 use crate::{
+    cookies::CookieConfig,
     headers::{OrigHeaders, header_pairs},
     http1::Http1Config,
     http2::Http2Config,
@@ -23,6 +24,10 @@ pub struct EmulationConfig {
     pub orig_headers: OrigHeaders,
     /// TLS, HTTP/1 and HTTP/2 options.
     pub transport: TransportConfig,
+    /// How the cookies from a cookie store go out. The JSON leaves out the default, so a config
+    /// that does not set it reads and writes as it did before this field existed.
+    #[serde(skip_serializing_if = "CookieConfig::is_default")]
+    pub cookies: CookieConfig,
 }
 
 /// The protocol options of an [`EmulationConfig`]. Each part is optional.
