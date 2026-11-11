@@ -15,6 +15,53 @@ Every release states:
 A **Breaking** section lists each change that makes a config, a request or code that worked
 before fail or act differently, and who it affects.
 
+## [0.5.0] - 2026-11-10
+
+wreq: `OpacityLabs/wreq` `v0.16.3-opacity.1`, the same as 0.4.0. wreq now needs its `cookies`
+feature as well.
+Wire format: one optional top-level key added, `cookies`. A config that keeps the default writes
+no `cookies` key, so its JSON is unchanged. A reader on 0.4.x or older rejects a config that has
+the key, because it rejects unknown top-level keys, so update every reader before any SDK or flow
+sets it. A reader on 0.5.0 or later ignores keys it does not know, see Changed.
+API: `EmulationConfig` has a new public field, see Breaking. Four items are new, see Added.
+Profiles: the Chrome and Firefox profiles set `cookies`, see Profiles.
+
+### Breaking
+- `EmulationConfig` has a new public field, `cookies`. Code that builds an `EmulationConfig` with
+  a struct literal and no `..EmulationConfig::default()` no longer compiles.
+
+### Added
+- `CookieConfig`: how a client lays out, orders and encodes the cookies from its cookie store,
+  with `CookieLayout`, `CookieOverwrite` and the presets `CookieConfig::CHROME` and
+  `CookieConfig::FIREFOX`. The default is one combined field and the RFC 6265 order, which is
+  what the SDK sent before, with a fixed order. `wreq::Emulation::from(&config)` does not carry
+  it: only a cookie store that reads it applies it.
+- `CookieConfig::request_cookies`: turns the `name=value` pairs for a request into the wreq
+  `Cookies` for its HTTP version. A `wreq::cookie::CookieStore` calls it from `cookies()`.
+- `CookieOverwrite::renews_creation_time`: tells a cookie store whether a cookie that a response
+  sets again moves to the end.
+- `cookie_pairs`: splits a `Cookie` header value into its pairs.
+
+### Changed
+- Unknown keys are ignored in every object except a duration (`{"secs": .., "nanos": ..}`). A
+  config with a key that a newer writer adds now reads, and the reader drops that key and its
+  setting. An unknown top-level key was an error, as it is for the fork. An unknown value of a
+  known key is still an error.
+
+### Profiles
+- `chrome_145_macos`, `chrome_145_windows`, `chrome_145_android`: `CookieConfig::CHROME`. One
+  `cookie` field per cookie over HTTP/2, a cookie set again with a new value moves to the end,
+  and no field is marked "never indexed".
+- `firefox_147_macos`, `firefox_147_windows`, `firefox_android_135`: `CookieConfig::FIREFOX`.
+  One `cookie` field per cookie over HTTP/2, a cookie set again keeps its place, and fields under
+  20 bytes go out as HPACK "never indexed" literals.
+- Both presets come from Chrome 156 and Firefox 157 on macOS, captured with Wireshark, and match
+  each browser's source. The Android profiles use the same network code. The Safari profiles
+  keep the default, because Safari is not measured.
+- Known gap: http2 0.5.20 never adds a cookie field to the HPACK table, so every field that is
+  not marked "never indexed" goes out as a literal without indexing on every request. Chrome and
+  Firefox index those fields after the first request. See "Cookies" in the README.
+
 ## [0.4.0] - 2026-11-02
 
 wreq: `OpacityLabs/wreq` `v0.16.3-opacity.1`, the fork of upstream `v0.16.3`

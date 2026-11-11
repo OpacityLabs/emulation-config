@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use wreq::header::{COOKIE, HeaderMap, HeaderValue};
 
 use crate::{
+    cookies::CookieConfig,
     headers::{OrigHeaders, header_pairs},
     http1::Http1Config,
     http2::Http2Config,
@@ -12,9 +13,11 @@ use crate::{
 
 /// Everything a `wreq::Emulation` holds, as plain data.
 ///
-/// Missing keys fall back to empty values and unknown keys are rejected, as with the fork.
+/// Missing keys fall back to empty values. Unknown keys are ignored at every level, so a reader
+/// accepts a config from a newer writer that adds a key. The fork rejects an unknown top-level
+/// key.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct EmulationConfig {
     /// Headers added to every request.
     #[serde(with = "header_pairs")]
@@ -23,6 +26,10 @@ pub struct EmulationConfig {
     pub orig_headers: OrigHeaders,
     /// TLS, HTTP/1 and HTTP/2 options.
     pub transport: TransportConfig,
+    /// How the cookies from a cookie store go out. The JSON leaves out the default, so a config
+    /// that does not set it reads and writes as it did before this field existed.
+    #[serde(skip_serializing_if = "CookieConfig::is_default")]
+    pub cookies: CookieConfig,
 }
 
 /// The protocol options of an [`EmulationConfig`]. Each part is optional.

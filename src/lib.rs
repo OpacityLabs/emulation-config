@@ -1,7 +1,8 @@
 //! Plain-data emulation configs for [wreq].
 //!
 //! An [`EmulationConfig`] describes everything a `wreq::Emulation` holds: default headers,
-//! header order, and the TLS, HTTP/1 and HTTP/2 options. It reads and writes the same JSON as
+//! header order, and the TLS, HTTP/1 and HTTP/2 options. It also holds a [`CookieConfig`], which a
+//! cookie store applies. It reads and writes the same JSON as
 //! the serde code inside the `OpacityLabs/wreq` fork (`v6.0.0-rc.28`), which is the format the
 //! SDK uses today.
 //!
@@ -22,6 +23,7 @@
 
 mod cert_compression;
 mod checked_number;
+mod cookies;
 mod emulation;
 mod headers;
 pub mod http1;
@@ -30,6 +32,7 @@ mod profiles;
 mod string_enum;
 pub mod tls;
 
+pub use cookies::{CookieConfig, CookieLayout, CookieOverwrite, cookie_pairs};
 pub use emulation::{EmulationConfig, TransportConfig};
 pub use headers::{OrigHeaderName, OrigHeaders};
 pub use http1::Http1Config;
