@@ -47,9 +47,10 @@ impl CookieOverwrite {
 /// How a client lays out, orders and encodes the cookies from its cookie store.
 ///
 /// The default is one combined field, as the SDK sent before this setting existed, with the
-/// RFC 6265 order.
+/// RFC 6265 order. Unknown settings are ignored, so a reader accepts a config from a newer writer
+/// that adds one. An unknown value of a known setting is an error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct CookieConfig {
     /// One field, or one field per cookie, over HTTP/2 and HTTP/3.
     pub layout: CookieLayout,
@@ -317,9 +318,21 @@ mod tests {
     }
 
     #[test]
-    fn unknown_settings_and_names_are_rejected() {
+    fn unknown_settings_are_ignored() {
+        let read: CookieConfig =
+            serde_json::from_str(r#"{"layout":"split","order":"name"}"#).unwrap();
+        assert_eq!(
+            read,
+            CookieConfig {
+                layout: CookieLayout::Split,
+                ..CookieConfig::default()
+            }
+        );
+    }
+
+    #[test]
+    fn unknown_values_are_rejected() {
         for json in [
-            r#"{"order":"name"}"#,
             r#"{"layout":"per_cookie"}"#,
             r#"{"overwrite":"renew"}"#,
             r#"{"never_index_below":-1}"#,

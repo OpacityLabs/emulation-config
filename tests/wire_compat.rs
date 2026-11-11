@@ -48,7 +48,8 @@ const WE_REJECT: [&str; 13] = [
     "repeated_key",
     "repeated_headers_key",
 ];
-const WE_ACCEPT: [&str; 3] = [
+const WE_ACCEPT: [&str; 4] = [
+    "unknown_top_level_key",
     "config_as_array",
     "escaped_certificate_compression",
     "escaped_extension_type",
@@ -89,6 +90,45 @@ fn profiles_match_byte_for_byte() {
 }
 
 /// Every profile and every case we accept converts to the recorded wreq value.
+/// Keys whose value is a `Duration`. serde reads it as exactly `secs` and `nanos`, a fixed shape
+/// that no newer writer extends.
+const DURATION_KEYS: [&str; 2] = ["keep_alive_interval", "keep_alive_timeout"];
+
+/// Adds `key` to every config object in `value`, at every depth.
+fn add_key_everywhere(value: &mut serde_json::Value, key: &str) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for (name, value) in object.iter_mut() {
+                if !DURATION_KEYS.contains(&name.as_str()) {
+                    add_key_everywhere(value, key);
+                }
+            }
+            object.insert(
+                key.to_owned(),
+                serde_json::json!({ "from": "a newer writer" }),
+            );
+        }
+        serde_json::Value::Array(items) => {
+            for value in items {
+                add_key_everywhere(value, key);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A newer writer may add a key anywhere. A reader keeps everything it knows and drops the rest.
+#[test]
+fn unknown_keys_are_ignored_at_every_depth() {
+    for &profile in Profile::ALL {
+        let name = profile.as_str();
+        let sent = profile.json().trim_end();
+        let mut newer: serde_json::Value = serde_json::from_str(sent).unwrap();
+        add_key_everywhere(&mut newer, "a_future_key");
+        assert_eq!(our_roundtrip(&newer.to_string()).unwrap(), sent, "{name}");
+    }
+}
+
 #[test]
 fn conversions_match_the_wreq_debug_snapshot() {
     let actual = WreqDebug {

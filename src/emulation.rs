@@ -13,9 +13,11 @@ use crate::{
 
 /// Everything a `wreq::Emulation` holds, as plain data.
 ///
-/// Missing keys fall back to empty values and unknown keys are rejected, as with the fork.
+/// Missing keys fall back to empty values. Unknown keys are ignored at every level, so a reader
+/// accepts a config from a newer writer that adds a key. The fork rejects an unknown top-level
+/// key.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct EmulationConfig {
     /// Headers added to every request.
     #[serde(with = "header_pairs")]

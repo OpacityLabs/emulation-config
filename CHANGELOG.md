@@ -22,7 +22,7 @@ feature as well.
 Wire format: one optional top-level key added, `cookies`. A config that keeps the default writes
 no `cookies` key, so its JSON is unchanged. A reader on 0.4.x or older rejects a config that has
 the key, because it rejects unknown top-level keys, so update every reader before any SDK or flow
-sets it.
+sets it. A reader on 0.5.0 or later ignores keys it does not know, see Changed.
 API: `EmulationConfig` has a new public field, see Breaking. Four items are new, see Added.
 Profiles: the Chrome and Firefox profiles set `cookies`, see Profiles.
 
@@ -41,6 +41,12 @@ Profiles: the Chrome and Firefox profiles set `cookies`, see Profiles.
 - `CookieOverwrite::renews_creation_time`: tells a cookie store whether a cookie that a response
   sets again moves to the end.
 - `cookie_pairs`: splits a `Cookie` header value into its pairs.
+
+### Changed
+- Unknown keys are ignored in every object except a duration (`{"secs": .., "nanos": ..}`). A
+  config with a key that a newer writer adds now reads, and the reader drops that key and its
+  setting. An unknown top-level key was an error, as it is for the fork. An unknown value of a
+  known key is still an error.
 
 ### Profiles
 - `chrome_145_macos`, `chrome_145_windows`, `chrome_145_android`: `CookieConfig::CHROME`. One

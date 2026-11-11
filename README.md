@@ -155,6 +155,10 @@ Decoded, a payload looks like this (values shortened):
 - `key_shares_limit` is the number of leading `curves_list` groups that get a key share. wreq
   0.16 names the groups instead, so the conversion takes the first N entries of `curves_list`,
   the mapping upstream's own Firefox presets use. With no `curves_list` the limit does nothing.
+- Unknown keys are ignored in every object except a duration (`{"secs": .., "nanos": ..}`), so
+  a key that a newer writer adds does not fail a reader on 0.5.0 or later. The reader drops that
+  key and its setting. A reader on 0.4.x or older, like the fork, rejects an unknown top-level
+  key. An unknown value of a known key, such as a new `layout` name, is still an error.
 - `cookies` is left out when it is the default (`{"layout":"combined","overwrite":
   "keep_creation_time","never_index_below":null}`), so a config that does not set it writes the
   same JSON as before. A reader on 0.4.x or older rejects a payload with the key.
@@ -183,6 +187,7 @@ conversion changed, so it comes with an entry in [CHANGELOG.md](CHANGELOG.md).
 The tests check that:
 - every profile reproduces byte for byte through this crate's serde and `Profile::config()`;
 - every recorded case gives the fork's output, or is rejected like the fork rejected it;
+- a key added to every object of every profile, except a duration, is ignored;
 - every profile and every accepted case converts to the wreq value in the snapshot;
 - the zlib, brotli and zstd certificate compressors round-trip and report their algorithm;
 - defaults, the builder-style constructors and the window setters match wreq's own (the setters
@@ -218,6 +223,7 @@ CHANGELOG's **Breaking** section for 0.1.0 says which rows can make a working re
 | `h1_max_buf_size` below 8192 | accepted; every HTTP/1 connection made with it then panics as it starts | rejected |
 | Hand-written pseudo order, settings order or priorities (e.g. `{"ids": ["PATH"]}`) | kept as sent, so missing pseudo-headers and settings are left out of the request | kept as sent in the config. Converting to wreq completes and dedupes the list through wreq's builders, the only way to build these types outside wreq |
 | The same JSON key twice in one object | at the top level and in `tls_options`: the last value wins, but `headers` and `orig_headers` merge both lists. Elsewhere: rejected | rejected everywhere |
+| A key it does not know at the top level (`{"not_a_real_key": 1}`) | rejected | ignored |
 | Whole config as a JSON array | rejected | accepted |
 | `\u` escapes in `certificate_compression_algorithms` or `extension_permutation` | rejected | accepted |
 | More than 24,576 distinct header names (the most an `http::HeaderMap` holds) | panics | returns an error |
